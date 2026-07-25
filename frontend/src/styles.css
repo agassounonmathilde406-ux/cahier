@@ -1,0 +1,379 @@
+/* =========================================================================
+   KAJYE — design système "cahier d'écolier"
+   Palette : papier crème, quadrillage Seyes bleu pâle, marge rouge (comme un
+   vrai cahier francophone), encre bleu-nuit, accents vert/jaune du drapeau
+   béninois pour les actions clés.
+   ========================================================================= */
+
+:root {
+  --paper: #FBF7EC;
+  --paper-dark: #F3EDDD;
+  --grid: #C9D9EA;
+  --margin-red: #B23A2E;
+  --ink: #232A3B;
+  --ink-soft: #5B6478;
+  --gold: #E3A83B;
+  --green: #1E7A4C;
+  --green-dark: #145C39;
+  --danger: #B23A2E;
+  --white: #FFFFFF;
+  --radius: 10px;
+  --font-display: 'Caveat', cursive;
+  --font-body: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--ink);
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent, transparent 27px,
+      var(--grid) 27px, var(--grid) 28px
+    ),
+    var(--paper);
+  min-height: 100vh;
+}
+
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
+
+/* La marge rouge du cahier, signature visuelle de toute la plateforme */
+.page {
+  position: relative;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 18px 18px 90px 26px;
+  border-left: 2px solid var(--margin-red);
+  margin-left: 14px;
+  min-height: 100vh;
+}
+@media (min-width: 760px) {
+  .page { margin-left: auto; padding-left: 34px; }
+}
+
+/* ---------- Header ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0 16px;
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.brand .dot { color: var(--green); }
+.brand-tagline {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: block;
+  margin-top: -6px;
+}
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
+
+.icon-btn {
+  background: var(--white);
+  border: 1px solid var(--paper-dark);
+  border-radius: 999px;
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+
+/* ---------- Boutons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  font-weight: 600;
+  font-size: 15px;
+  transition: transform 0.08s ease;
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--green); color: var(--white); }
+.btn-primary:hover { background: var(--green-dark); }
+.btn-secondary { background: var(--white); color: var(--ink); border: 1.5px solid var(--ink); }
+.btn-gold { background: var(--gold); color: var(--ink); }
+.btn-danger { background: var(--danger); color: var(--white); }
+.btn-block { width: 100%; }
+.btn-sm { padding: 7px 12px; font-size: 13px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-link { background: none; border: none; color: var(--green-dark); text-decoration: underline; padding: 0; font-size: 14px; }
+
+/* ---------- Champs de formulaire ---------- */
+.field { margin-bottom: 14px; }
+.field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.field input, .field select, .field textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1.5px solid var(--paper-dark);
+  border-radius: 8px;
+  background: var(--white);
+  font-size: 15px;
+  color: var(--ink);
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+.form-card {
+  background: var(--white);
+  border: 1px solid var(--paper-dark);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+/* ---------- Titres ---------- */
+h1 { font-family: var(--font-display); font-size: 30px; margin: 8px 0 14px; }
+h2 {
+  font-family: var(--font-display);
+  font-size: 24px;
+  margin: 22px 0 10px;
+  display: inline-block;
+  border-bottom: 3px solid var(--gold);
+  padding-bottom: 2px;
+}
+h3 { font-size: 16px; margin: 0 0 4px; font-weight: 600; }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+/* ---------- Recherche ---------- */
+.search-bar {
+  display: flex;
+  gap: 8px;
+  background: var(--white);
+  border: 1.5px solid var(--paper-dark);
+  border-radius: 999px;
+  padding: 4px 4px 4px 14px;
+  align-items: center;
+}
+.search-bar input {
+  border: none; flex: 1; background: transparent; font-size: 15px; padding: 8px 0;
+}
+.search-bar input:focus { outline: none; }
+.search-bar button {
+  background: var(--ink); color: var(--white); border: none; border-radius: 999px;
+  width: 36px; height: 36px;
+}
+
+/* ---------- Niveaux (horizontal scroll chips) ---------- */
+.chip-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0 10px;
+  scrollbar-width: none;
+}
+.chip-row::-webkit-scrollbar { display: none; }
+.chip {
+  flex: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--paper-dark);
+  background: var(--white);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chip.active { background: var(--ink); color: var(--white); border-color: var(--ink); }
+
+/* ---------- Grille de cahiers ---------- */
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-top: 4px;
+}
+@media (min-width: 560px) { .book-grid { grid-template-columns: repeat(3, 1fr); } }
+
+.book-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--paper-dark);
+  box-shadow: 3px 4px 0 rgba(35,42,59,0.06);
+  display: flex;
+  flex-direction: column;
+}
+.book-cover {
+  aspect-ratio: 3/4;
+  background: linear-gradient(135deg, var(--green) 0%, var(--green-dark) 100%);
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  padding: 10px;
+  color: var(--white);
+}
+.book-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.book-cover .spine { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--gold); }
+.book-cover-title { font-family: var(--font-display); font-size: 19px; line-height: 1.05; position: relative; z-index: 1; }
+.badge-free {
+  position: absolute; top: 8px; right: 8px;
+  background: var(--gold); color: var(--ink); font-size: 10px; font-weight: 700;
+  padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.book-info { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.book-meta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); }
+.book-price { margin-top: auto; font-weight: 700; font-family: var(--font-mono); }
+.book-price.free { color: var(--green-dark); }
+
+/* ---------- Sections d'accueil ---------- */
+.section-head { display: flex; align-items: baseline; justify-content: space-between; }
+.section-head a { font-size: 13px; color: var(--green-dark); font-weight: 600; }
+.hero {
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 16px;
+  padding: 26px 22px;
+  margin: 6px 0 20px;
+  position: relative;
+  overflow: hidden;
+}
+.hero::after {
+  content: "";
+  position: absolute; right: -30px; top: -30px; width: 140px; height: 140px;
+  border-radius: 50%; background: var(--gold); opacity: 0.15;
+}
+.hero h1 { font-size: 36px; margin: 0 0 8px; color: var(--paper); }
+.hero p { color: #C9D0DF; font-size: 14px; max-width: 46ch; margin: 0 0 16px; }
+
+/* ---------- Page détail cahier ---------- */
+.detail-cover {
+  width: 100%;
+  aspect-ratio: 3/4;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--green) 0%, var(--green-dark) 100%);
+  position: relative;
+  overflow: hidden;
+  color: white;
+  display: flex; align-items: flex-end; padding: 18px;
+}
+.detail-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.price-tag {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--green-dark);
+}
+.divider { border: none; border-top: 1px dashed var(--paper-dark); margin: 16px 0; }
+.pill {
+  display: inline-block; padding: 3px 10px; border-radius: 999px;
+  background: var(--paper-dark); font-size: 12px; font-family: var(--font-mono); margin-right: 6px;
+}
+.sticky-buybar {
+  position: sticky;
+  bottom: 12px;
+  background: var(--white);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  box-shadow: 0 6px 0 rgba(35,42,59,0.08);
+}
+
+/* ---------- Bibliothèque ---------- */
+.library-item {
+  display: flex; gap: 12px; align-items: center;
+  background: var(--white); border: 1px solid var(--paper-dark); border-radius: var(--radius);
+  padding: 10px; margin-bottom: 10px;
+}
+.library-item .cover-thumb {
+  width: 52px; height: 68px; border-radius: 6px; flex: none;
+  background: linear-gradient(135deg, var(--green), var(--green-dark));
+}
+.library-item .cover-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; }
+
+/* ---------- Tableau de bord ---------- */
+.stat-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; margin: 12px 0; }
+@media (min-width: 560px) { .stat-grid { grid-template-columns: repeat(4,1fr); } }
+.stat-card {
+  background: var(--white); border: 1px solid var(--paper-dark); border-radius: var(--radius);
+  padding: 14px;
+}
+.stat-card .val { font-family: var(--font-mono); font-size: 22px; font-weight: 700; }
+.stat-card .lbl { font-size: 12px; color: var(--ink-soft); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--white); }
+table th, table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--paper-dark); }
+table th { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; color: var(--ink-soft); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--paper-dark); border-radius: var(--radius); }
+
+.status-tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; font-family: var(--font-mono); }
+.status-success { background: #DCEFE2; color: var(--green-dark); }
+.status-pending { background: #FDF1D8; color: #9A6A0E; }
+.status-failed, .status-refunded { background: #F7DEDA; color: var(--danger); }
+
+/* ---------- Bottom nav mobile ---------- */
+.bottom-nav {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  background: var(--white);
+  border-top: 1.5px solid var(--ink);
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+  z-index: 20;
+}
+.bottom-nav a, .bottom-nav button {
+  background: none; border: none;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font-size: 10px; color: var(--ink-soft); font-weight: 600;
+}
+.bottom-nav a.active, .bottom-nav .active { color: var(--green-dark); }
+.bottom-nav .ic { font-size: 19px; }
+
+.empty-state { text-align: center; padding: 40px 10px; color: var(--ink-soft); }
+.empty-state .ic { font-size: 34px; display: block; margin-bottom: 8px; }
+
+.error-box {
+  background: #F7DEDA; color: var(--danger); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px;
+}
+.notice-box {
+  background: #DCEFE2; color: var(--green-dark); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px;
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--paper-dark) 25%, #fff 37%, var(--paper-dark) 63%);
+  background-size: 400% 100%;
+  animation: shine 1.4s ease infinite;
+  border-radius: 8px;
+}
+@keyframes shine { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+.role-badge {
+  font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+  background: var(--gold); color: var(--ink); padding: 2px 8px; border-radius: 999px; font-weight: 700;
+}
