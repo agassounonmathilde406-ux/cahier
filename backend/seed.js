@@ -18,15 +18,21 @@ async function makeSamplePdf(filePath, title, pages) {
 }
 
 async function seed() {
+  await db.initSchema();
+
+  const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, 'data');
+  const pdfsDir = path.join(uploadsDir, 'pdfs');
+  fs.mkdirSync(pdfsDir, { recursive: true });
+
   const ownerEmail = process.env.OWNER_EMAIL || 'owner@cahiers-benin.com';
   const ownerPassword = process.env.OWNER_PASSWORD || 'ChangeMe123!';
 
-  let owner = db.prepare('SELECT * FROM users WHERE email = ?').get(ownerEmail);
+  let owner = await db.prepare('SELECT * FROM users WHERE email = ?').get(ownerEmail);
   if (!owner) {
     const id = uuid();
-    db.prepare('INSERT INTO users (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
+    await db.prepare('INSERT INTO users (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
       .run(id, 'Propriétaire', ownerEmail, bcrypt.hashSync(ownerPassword, 10), 'owner');
-    owner = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    owner = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
     console.log(`Compte propriétaire créé -> email: ${ownerEmail} / mot de passe: ${ownerPassword}`);
   } else {
     console.log('Compte propriétaire déjà existant.');
@@ -35,10 +41,10 @@ async function seed() {
   const subjects = ['Mathématiques', 'Physique', 'Chimie', 'SVT', 'Français', 'Anglais', 'Histoire', 'Géographie', 'Philosophie'];
   const subjectIds = {};
   for (const name of subjects) {
-    let s = db.prepare('SELECT * FROM subjects WHERE name = ?').get(name);
+    let s = await db.prepare('SELECT * FROM subjects WHERE name = ?').get(name);
     if (!s) {
       const id = uuid();
-      db.prepare('INSERT INTO subjects (id, name) VALUES (?,?)').run(id, name);
+      await db.prepare('INSERT INTO subjects (id, name) VALUES (?,?)').run(id, name);
       s = { id, name };
     }
     subjectIds[name] = s.id;
@@ -54,12 +60,12 @@ async function seed() {
   ];
 
   for (const b of sampleBooks) {
-    const exists = db.prepare('SELECT * FROM books WHERE title = ?').get(b.title);
+    const exists = await db.prepare('SELECT * FROM books WHERE title = ?').get(b.title);
     if (exists) continue;
     const id = uuid();
-    const pdfPath = path.join(__dirname, 'data', 'pdfs', `${id}.pdf`);
+    const pdfPath = path.join(pdfsDir, `${id}.pdf`);
     await makeSamplePdf(pdfPath, b.title, b.pages);
-    db.prepare(`INSERT INTO books
+    await db.prepare(`INSERT INTO books
       (id,title,description,level,series,subject_id,author,cover_path,pdf_path,preview_pages,total_pages,is_free,price,status,created_by,published_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
@@ -72,4 +78,6 @@ async function seed() {
   console.log('\nSeed terminé.');
 }
 
-seed().catch((e) => { console.error(e); process.exit(1); });
+seed()
+  .then(() => process.exit(0))
+  .catch((e) => { console.error(e); process.exit(1); });
