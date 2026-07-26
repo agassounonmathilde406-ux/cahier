@@ -7,14 +7,19 @@ const db = require('../db');
 const { authRequired, optionalAuth, requireRole } = require('../middleware/auth');
 const { logActivity } = require('../utils/activityLog');
 const { extractPreview } = require('../utils/watermark');
+const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
 
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', 'data');
+const COVERS_DIR = path.join(UPLOADS_DIR, 'covers');
+const PDFS_DIR = path.join(UPLOADS_DIR, 'pdfs');
+fs.mkdirSync(COVERS_DIR, { recursive: true });
+fs.mkdirSync(PDFS_DIR, { recursive: true });
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = file.fieldname === 'cover'
-      ? path.join(__dirname, '..', 'data', 'covers')
-      : path.join(__dirname, '..', 'data', 'pdfs');
+    const dir = file.fieldname === 'cover' ? COVERS_DIR : PDFS_DIR;
     cb(null, dir);
   },
   filename: (req, file, cb) => cb(null, `${uuid()}${path.extname(file.originalname)}`),
@@ -54,22 +59,19 @@ function toPublicBook(b, { includeInternal } = {}) {
   };
 }
 
-// ---------- CATALOGUE PUBLIC ----------
+router.get('/subjects', asyncHandler(async (req, res) => {
+  res.json(await db.prepare('SELECT * FROM subjects ORDER BY name').all());
+}));
 
-router.get('/subjects', (req, res) => {
-  res.json(db.prepare('SELECT * FROM subjects ORDER BY name').all());
-});
-
-router.post('/subjects', authRequired, requireRole('admin_content'), (req, res) => {
+router.post('/subjects', authRequired, requireRole('admin_content'), asyncHandler(async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'Nom de la matière requis.' });
   const id = uuid();
-  db.prepare('INSERT INTO subjects (id, name) VALUES (?,?)').run(id, name);
+  await db.prepare('INSERT INTO subjects (id, name) VALUES (?,?)').run(id, name);
   res.status(201).json({ id, name });
-});
+}));
 
-// Recherche + filtres: niveau, serie, matiere, gratuit/payant, prix, popularite, date
-router.get('/', optionalAuth, (req, res) => {
+router.get('/', optionalAuth, asyncHandler(async (req, res) => {
   const { q, level, series, subjectId, free, sort } = req.query;
   let sql = "SELECT * FROM books WHERE status = 'published'";
   const params = [];
@@ -89,24 +91,22 @@ router.get('/', optionalAuth, (req, res) => {
   else if (sort === 'price_desc') sql += ' ORDER BY price DESC';
   else sql += ' ORDER BY published_at DESC';
 
-  const rows = db.prepare(sql).all(...params);
+  const rows = await db.prepare(sql).all(...params);
   res.json(rows.map((b) => toPublicBook(b)));
-});
+}));
 
-router.get('/:id', optionalAuth, (req, res) => {
-  const b = db.prepare('SELECT * FROM books WHERE id = ?').get(req.params.id);
+router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
+  const b = await db.prepare('SELECT * FROM books WHERE id = ?').get(req.params.id);
   if (!b) return res.status(404).json({ error: 'Cahier introuvable.' });
   if (b.status !== 'published' && !(req.user && ['owner', 'admin_content', 'admin_validation'].includes(req.user.role))) {
     return res.status(404).json({ error: 'Cahier introuvable.' });
   }
-  db.prepare('UPDATE books SET view_count = view_count + 1 WHERE id = ?').run(b.id);
+  await db.prepare('UPDATE books SET view_count = view_count + 1 WHERE id = ?').run(b.id);
   res.json(toPublicBook(b));
-});
+}));
 
-// ---------- APERCU ----------
-// Sert un PDF tronque contenant uniquement les pages d'apercu autorisees.
-router.get('/:id/preview', async (req, res) => {
-  const b = db.prepare("SELECT * FROM books WHERE id = ? AND status = 'published'").get(req.params.id);
+router.get('/:id/preview', asyncHandler(async (req, res) => {
+  const b = await db.prepare("SELECT * FROM books WHERE id = ? AND status = 'published'").get(req.params.id);
   if (!b || !b.pdf_path) return res.status(404).json({ error: 'Cahier introuvable.' });
   try {
     const bytes = await extractPreview(b.pdf_path, b.preview_pages);
@@ -116,17 +116,14 @@ router.get('/:id/preview', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: "Impossible de générer l'aperçu." });
   }
-});
+}));
 
-// ---------- ADMINISTRATION DES CAHIERS ----------
-
-// Ajout d'un cahier (statut initial: draft ou pending selon le role)
 router.post(
   '/',
   authRequired,
   requireRole('admin_content'),
   upload.fields([{ name: 'cover', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]),
-  (req, res) => {
+  asyncHandler(async (req, res) => {
     const { title, description, level, series, subjectId, author, isFree, price, previewPages } = req.body;
     if (!title || !level) return res.status(400).json({ error: 'Titre et niveau requis.' });
 
@@ -135,7 +132,7 @@ router.post(
     const pdf = req.files?.pdf?.[0];
     const status = req.user.role === 'owner' ? 'published' : 'pending';
 
-    db.prepare(`INSERT INTO books
+    await db.prepare(`INSERT INTO books
       (id,title,description,level,series,subject_id,author,cover_path,pdf_path,preview_pages,is_free,price,status,created_by,published_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
@@ -148,10 +145,10 @@ router.post(
       req.user.id,
       status === 'published' ? new Date().toISOString() : null
     );
-    logActivity(req.user.id, `A créé le cahier "${title}"`, id);
-    const b = db.prepare('SELECT * FROM books WHERE id = ?').get(id);
+    await logActivity(req.user.id, `A créé le cahier "${title}"`, id);
+    const b = await db.prepare('SELECT * FROM books WHERE id = ?').get(id);
     res.status(201).json(toPublicBook(b, { includeInternal: true }));
-  }
+  })
 );
 
 router.put(
@@ -159,16 +156,15 @@ router.put(
   authRequired,
   requireRole('admin_content'),
   upload.fields([{ name: 'cover', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]),
-  (req, res) => {
-    const b = db.prepare('SELECT * FROM books WHERE id = ?').get(req.params.id);
+  asyncHandler(async (req, res) => {
+    const b = await db.prepare('SELECT * FROM books WHERE id = ?').get(req.params.id);
     if (!b) return res.status(404).json({ error: 'Cahier introuvable.' });
 
     const { title, description, level, series, subjectId, author, isFree, price, previewPages, downloadsEnabled, downloadLimit } = req.body;
     const cover = req.files?.cover?.[0];
     const pdf = req.files?.pdf?.[0];
 
-    // Seul le proprietaire (ou un admin avec permission) peut changer le prix ici sans re-validation
-    db.prepare(`UPDATE books SET
+    await db.prepare(`UPDATE books SET
       title = COALESCE(?,title), description = COALESCE(?,description), level = COALESCE(?,level),
       series = COALESCE(?,series), subject_id = COALESCE(?,subject_id), author = COALESCE(?,author),
       cover_path = COALESCE(?,cover_path), pdf_path = COALESCE(?,pdf_path),
@@ -185,53 +181,50 @@ router.put(
       downloadLimit ? Number(downloadLimit) : null,
       req.params.id
     );
-    logActivity(req.user.id, `A modifié le cahier "${b.title}"`, b.id);
-    const updated = db.prepare('SELECT * FROM books WHERE id = ?').get(req.params.id);
+    await logActivity(req.user.id, `A modifié le cahier "${b.title}"`, b.id);
+    const updated = await db.prepare('SELECT * FROM books WHERE id = ?').get(req.params.id);
     res.json(toPublicBook(updated, { includeInternal: true }));
-  }
+  })
 );
 
-// Envoi pour validation (admin_content -> pending)
-router.post('/:id/submit', authRequired, requireRole('admin_content'), (req, res) => {
-  db.prepare("UPDATE books SET status = 'pending' WHERE id = ?").run(req.params.id);
-  logActivity(req.user.id, 'A soumis un cahier pour validation', req.params.id);
+router.post('/:id/submit', authRequired, requireRole('admin_content'), asyncHandler(async (req, res) => {
+  await db.prepare("UPDATE books SET status = 'pending' WHERE id = ?").run(req.params.id);
+  await logActivity(req.user.id, 'A soumis un cahier pour validation', req.params.id);
   res.json({ ok: true });
-});
+}));
 
-// Validation (accepter / refuser) — admin_validation ou owner
-router.post('/:id/validate', authRequired, requireRole('admin_validation'), (req, res) => {
-  const { decision } = req.body; // 'accept' | 'refuse'
+router.post('/:id/validate', authRequired, requireRole('admin_validation'), asyncHandler(async (req, res) => {
+  const { decision } = req.body;
   const status = decision === 'accept' ? 'published' : 'refused';
-  db.prepare('UPDATE books SET status = ?, published_at = ? WHERE id = ?')
+  await db.prepare('UPDATE books SET status = ?, published_at = ? WHERE id = ?')
     .run(status, status === 'published' ? new Date().toISOString() : null, req.params.id);
-  logActivity(req.user.id, `A ${decision === 'accept' ? 'validé' : 'refusé'} le cahier`, req.params.id);
+  await logActivity(req.user.id, `A ${decision === 'accept' ? 'validé' : 'refusé'} le cahier`, req.params.id);
   res.json({ ok: true, status });
-});
+}));
 
-router.get('/admin/pending', authRequired, requireRole('admin_validation'), (req, res) => {
-  const rows = db.prepare("SELECT * FROM books WHERE status = 'pending' ORDER BY created_at ASC").all();
+router.get('/admin/pending', authRequired, requireRole('admin_validation'), asyncHandler(async (req, res) => {
+  const rows = await db.prepare("SELECT * FROM books WHERE status = 'pending' ORDER BY created_at ASC").all();
   res.json(rows.map((b) => toPublicBook(b, { includeInternal: true })));
-});
+}));
 
-router.get('/admin/all', authRequired, requireRole('admin_content', 'admin_validation'), (req, res) => {
-  const rows = db.prepare('SELECT * FROM books ORDER BY created_at DESC').all();
+router.get('/admin/all', authRequired, requireRole('admin_content', 'admin_validation'), asyncHandler(async (req, res) => {
+  const rows = await db.prepare('SELECT * FROM books ORDER BY created_at DESC').all();
   res.json(rows.map((b) => toPublicBook(b, { includeInternal: true })));
-});
+}));
 
-router.post('/:id/archive', authRequired, requireRole('admin_content'), (req, res) => {
-  db.prepare("UPDATE books SET status = 'archived' WHERE id = ?").run(req.params.id);
-  logActivity(req.user.id, 'A archivé un cahier', req.params.id);
+router.post('/:id/archive', authRequired, requireRole('admin_content'), asyncHandler(async (req, res) => {
+  await db.prepare("UPDATE books SET status = 'archived' WHERE id = ?").run(req.params.id);
+  await logActivity(req.user.id, 'A archivé un cahier', req.params.id);
   res.json({ ok: true });
-});
+}));
 
-// Signaler un contenu
-router.post('/:id/report', authRequired, (req, res) => {
+router.post('/:id/report', authRequired, asyncHandler(async (req, res) => {
   const { reason } = req.body;
   const id = uuid();
-  db.prepare('INSERT INTO reports (id, book_id, reported_by, reason) VALUES (?,?,?,?)')
+  await db.prepare('INSERT INTO reports (id, book_id, reported_by, reason) VALUES (?,?,?,?)')
     .run(id, req.params.id, req.user.id, reason || '');
-  logActivity(req.user.id, 'A signalé un cahier', req.params.id);
+  await logActivity(req.user.id, 'A signalé un cahier', req.params.id);
   res.status(201).json({ ok: true });
-});
+}));
 
 module.exports = router;
