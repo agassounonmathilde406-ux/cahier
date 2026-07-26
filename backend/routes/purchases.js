@@ -1,230 +1,166 @@
 const express = require('express');
-const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuid } = require('uuid');
+const jwt = require('jsonwebtoken');
 const db = require('../db');
-const { authRequired, optionalAuth, requireRole } = require('../middleware/auth');
+const { authRequired } = require('../middleware/auth');
 const { logActivity } = require('../utils/activityLog');
-const { extractPreview } = require('../utils/watermark');
+const { getProvider, listProviders } = require('../utils/payments');
+const { watermarkPdf } = require('../utils/watermark');
+const { JWT_SECRET } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', 'data');
-const COVERS_DIR = path.join(UPLOADS_DIR, 'covers');
-const PDFS_DIR = path.join(UPLOADS_DIR, 'pdfs');
-fs.mkdirSync(COVERS_DIR, { recursive: true });
-fs.mkdirSync(PDFS_DIR, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = file.fieldname === 'cover' ? COVERS_DIR : PDFS_DIR;
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => cb(null, `${uuid()}${path.extname(file.originalname)}`),
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 60 * 1024 * 1024 }, // 60MB
-  fileFilter: (req, file, cb) => {
-    if (file.fieldname === 'cover' && !file.mimetype.startsWith('image/')) {
-      return cb(new Error('La couverture doit être une image.'));
-    }
-    if (file.fieldname === 'pdf' && file.mimetype !== 'application/pdf') {
-      return cb(new Error('Le fichier du cahier doit être un PDF.'));
-    }
-    cb(null, true);
-  },
-});
-
-function toPublicBook(b, { includeInternal } = {}) {
-  return {
-    id: b.id,
-    title: b.title,
-    description: b.description,
-    level: b.level,
-    series: b.series,
-    subjectId: b.subject_id,
-    author: b.author,
-    coverUrl: b.cover_path ? `/files/covers/${path.basename(b.cover_path)}` : null,
-    previewPages: b.preview_pages,
-    totalPages: b.total_pages,
-    isFree: !!b.is_free,
-    price: b.price,
-    status: b.status,
-    viewCount: b.view_count,
-    publishedAt: b.published_at,
-    ...(includeInternal ? { downloadLimit: b.download_limit, downloadsEnabled: !!b.downloads_enabled, createdBy: b.created_by } : {}),
-  };
+function contentDisposition(type, title) {
+  const ascii = title.replace(/[^\x20-\x7E]/g, '').replace(/["]/g, '') || 'cahier';
+  const encoded = encodeURIComponent(`${title}.pdf`);
+  return `${type}; filename="${ascii}.pdf"; filename*=UTF-8''${encoded}`;
 }
 
-router.get('/subjects', asyncHandler(async (req, res) => {
-  res.json(await db.prepare('SELECT * FROM subjects ORDER BY name').all());
-}));
+router.get('/payment-methods', (req, res) => res.json(listProviders()));
 
-router.post('/subjects', authRequired, requireRole('admin_content'), asyncHandler(async (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ error: 'Nom de la matière requis.' });
-  const id = uuid();
-  await db.prepare('INSERT INTO subjects (id, name) VALUES (?,?)').run(id, name);
-  res.status(201).json({ id, name });
-}));
+router.post('/', authRequired, asyncHandler(async (req, res) => {
+  const { bookId, paymentMethod, phone } = req.body;
+  const book = await db.prepare("SELECT * FROM books WHERE id = ? AND status = 'published'").get(bookId);
+  if (!book) return res.status(404).json({ error: 'Cahier introuvable.' });
+  if (book.is_free) return res.status(400).json({ error: 'Ce cahier est gratuit, aucun achat requis.' });
 
-router.get('/', optionalAuth, asyncHandler(async (req, res) => {
-  const { q, level, series, subjectId, free, sort } = req.query;
-  let sql = "SELECT * FROM books WHERE status = 'published'";
-  const params = [];
-  if (q) {
-    sql += ' AND (title LIKE ? OR description LIKE ? OR author LIKE ?)';
-    const like = `%${q}%`;
-    params.push(like, like, like);
+  const already = await db.prepare(
+    "SELECT * FROM purchases WHERE user_id = ? AND book_id = ? AND status IN ('success','pending')"
+  ).get(req.user.id, bookId);
+  if (already && already.status === 'success') {
+    return res.status(409).json({ error: 'Vous possédez déjà ce cahier.', purchaseId: already.id });
   }
-  if (level) { sql += ' AND level = ?'; params.push(level); }
-  if (series) { sql += ' AND series = ?'; params.push(series); }
-  if (subjectId) { sql += ' AND subject_id = ?'; params.push(subjectId); }
-  if (free === 'true') sql += ' AND is_free = 1';
-  if (free === 'false') sql += ' AND is_free = 0';
 
-  if (sort === 'popular') sql += ' ORDER BY view_count DESC';
-  else if (sort === 'price_asc') sql += ' ORDER BY price ASC';
-  else if (sort === 'price_desc') sql += ' ORDER BY price DESC';
-  else sql += ' ORDER BY published_at DESC';
+  const purchaseId = already ? already.id : uuid();
+  const provider = getProvider(paymentMethod);
 
-  const rows = await db.prepare(sql).all(...params);
-  res.json(rows.map((b) => toPublicBook(b)));
-}));
-
-router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
-  const b = await db.prepare('SELECT * FROM books WHERE id = ?').get(req.params.id);
-  if (!b) return res.status(404).json({ error: 'Cahier introuvable.' });
-  if (b.status !== 'published' && !(req.user && ['owner', 'admin_content', 'admin_validation'].includes(req.user.role))) {
-    return res.status(404).json({ error: 'Cahier introuvable.' });
-  }
-  await db.prepare('UPDATE books SET view_count = view_count + 1 WHERE id = ?').run(b.id);
-  res.json(toPublicBook(b));
-}));
-
-router.get('/:id/preview', asyncHandler(async (req, res) => {
-  const b = await db.prepare("SELECT * FROM books WHERE id = ? AND status = 'published'").get(req.params.id);
-  if (!b || !b.pdf_path) return res.status(404).json({ error: 'Cahier introuvable.' });
   try {
-    const bytes = await extractPreview(b.pdf_path, b.preview_pages);
+    const result = await provider.initiate({ amount: book.price, phone, reference: purchaseId });
+    if (!already) {
+      await db.prepare(`INSERT INTO purchases (id,user_id,book_id,amount,payment_method,payment_reference,status)
+        VALUES (?,?,?,?,?,?,?)`)
+        .run(purchaseId, req.user.id, bookId, book.price, paymentMethod, result.providerReference, 'pending');
+    } else {
+      await db.prepare('UPDATE purchases SET payment_reference = ?, status = ? WHERE id = ?')
+        .run(result.providerReference, 'pending', purchaseId);
+    }
+    await logActivity(req.user.id, `A initié l'achat du cahier "${book.title}"`, purchaseId);
+    res.status(201).json({ purchaseId, status: 'pending', message: result.message });
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'Le service de paiement est momentanément indisponible.' });
+  }
+}));
+
+router.post('/:id/confirm', authRequired, asyncHandler(async (req, res) => {
+  const purchase = await db.prepare('SELECT * FROM purchases WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!purchase) return res.status(404).json({ error: 'Transaction introuvable.' });
+  if (purchase.status === 'success') return res.json({ status: 'success' });
+  if (purchase.status !== 'pending') return res.status(409).json({ error: `Transaction ${purchase.status}.` });
+
+  const provider = getProvider(purchase.payment_method);
+  const result = await provider.checkStatus(purchase.payment_reference);
+
+  if (result.status === 'success') {
+    await db.prepare("UPDATE purchases SET status = 'success', confirmed_at = datetime('now') WHERE id = ?").run(purchase.id);
+    const book = await db.prepare('SELECT * FROM books WHERE id = ?').get(purchase.book_id);
+    await logActivity(req.user.id, `Paiement confirmé pour "${book.title}"`, purchase.id);
+  } else if (result.status === 'failed') {
+    await db.prepare("UPDATE purchases SET status = 'failed' WHERE id = ?").run(purchase.id);
+  }
+  res.json({ status: result.status });
+}));
+
+router.get('/library', authRequired, asyncHandler(async (req, res) => {
+  const rows = await db.prepare(`
+    SELECT p.id as purchase_id, p.status, p.download_count, p.created_at as purchased_at,
+           b.id as book_id, b.title, b.author, b.level, b.series, b.cover_path
+    FROM purchases p JOIN books b ON b.id = p.book_id
+    WHERE p.user_id = ? AND p.status = 'success'
+    ORDER BY p.created_at DESC
+  `).all(req.user.id);
+  res.json(rows.map((r) => ({
+    purchaseId: r.purchase_id,
+    bookId: r.book_id,
+    title: r.title,
+    author: r.author,
+    level: r.level,
+    series: r.series,
+    coverUrl: r.cover_path ? `/files/covers/${path.basename(r.cover_path)}` : null,
+    downloadCount: r.download_count,
+    purchasedAt: r.purchased_at,
+  })));
+}));
+
+router.get('/history', authRequired, asyncHandler(async (req, res) => {
+  const rows = await db.prepare(`
+    SELECT p.*, b.title FROM purchases p JOIN books b ON b.id = p.book_id
+    WHERE p.user_id = ? ORDER BY p.created_at DESC
+  `).all(req.user.id);
+  res.json(rows);
+}));
+
+router.get('/:bookId/download-link', authRequired, asyncHandler(async (req, res) => {
+  const book = await db.prepare('SELECT * FROM books WHERE id = ?').get(req.params.bookId);
+  if (!book) return res.status(404).json({ error: 'Cahier introuvable.' });
+
+  if (book.is_free) {
+    if (!book.downloads_enabled) return res.status(403).json({ error: 'Téléchargement désactivé pour ce cahier.' });
+    const token = jwt.sign({ bookId: book.id, kind: 'free' }, JWT_SECRET, { expiresIn: '10m' });
+    return res.json({ url: `/api/purchases/download/${token}` });
+  }
+
+  const purchase = await db.prepare(
+    "SELECT * FROM purchases WHERE user_id = ? AND book_id = ? AND status = 'success'"
+  ).get(req.user.id, book.id);
+  if (!purchase) return res.status(403).json({ error: "Vous n'avez pas acheté ce cahier." });
+  if (!book.downloads_enabled) return res.status(403).json({ error: 'Téléchargement temporairement désactivé.' });
+  if (book.download_limit && purchase.download_count >= book.download_limit) {
+    return res.status(403).json({ error: 'Limite de téléchargements atteinte pour ce cahier.' });
+  }
+
+  const token = jwt.sign(
+    { bookId: book.id, purchaseId: purchase.id, userId: req.user.id, kind: 'paid' },
+    JWT_SECRET,
+    { expiresIn: '10m' }
+  );
+  res.json({ url: `/api/purchases/download/${token}` });
+}));
+
+router.get('/download/:token', asyncHandler(async (req, res) => {
+  let payload;
+  try {
+    payload = jwt.verify(req.params.token, JWT_SECRET);
+  } catch (e) {
+    return res.status(401).json({ error: 'Lien de téléchargement expiré ou invalide.' });
+  }
+  const book = await db.prepare('SELECT * FROM books WHERE id = ?').get(payload.bookId);
+  if (!book || !book.pdf_path || !fs.existsSync(book.pdf_path)) {
+    return res.status(404).json({ error: 'Fichier introuvable.' });
+  }
+
+  try {
+    if (payload.kind === 'free') {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', contentDisposition('attachment', book.title));
+      return fs.createReadStream(book.pdf_path).pipe(res);
+    }
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(payload.userId);
+    const bytes = await watermarkPdf(book.pdf_path, {
+      buyerName: user.name,
+      orderNumber: payload.purchaseId.slice(0, 8).toUpperCase(),
+      date: new Date().toLocaleDateString('fr-FR'),
+    });
+    await db.prepare('UPDATE purchases SET download_count = download_count + 1 WHERE id = ?').run(payload.purchaseId);
+    await logActivity(payload.userId, `A téléchargé le cahier "${book.title}"`, book.id);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="apercu-${b.id}.pdf"`);
+    res.setHeader('Content-Disposition', contentDisposition('attachment', book.title));
     res.send(Buffer.from(bytes));
   } catch (e) {
-    res.status(500).json({ error: "Impossible de générer l'aperçu." });
+    res.status(500).json({ error: 'Erreur lors de la génération du fichier.' });
   }
-}));
-
-router.post(
-  '/',
-  authRequired,
-  requireRole('admin_content'),
-  upload.fields([{ name: 'cover', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]),
-  asyncHandler(async (req, res) => {
-    const { title, description, level, series, subjectId, author, isFree, price, previewPages } = req.body;
-    if (!title || !level) return res.status(400).json({ error: 'Titre et niveau requis.' });
-
-    const id = uuid();
-    const cover = req.files?.cover?.[0];
-    const pdf = req.files?.pdf?.[0];
-    const status = req.user.role === 'owner' ? 'published' : 'pending';
-
-    await db.prepare(`INSERT INTO books
-      (id,title,description,level,series,subject_id,author,cover_path,pdf_path,preview_pages,is_free,price,status,created_by,published_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(
-      id, title, description || '', level, series || null, subjectId || null, author || '',
-      cover ? cover.path : null, pdf ? pdf.path : null,
-      Number(previewPages) || 5,
-      isFree === 'true' ? 1 : 0,
-      Number(price) || 1000,
-      status,
-      req.user.id,
-      status === 'published' ? new Date().toISOString() : null
-    );
-    await logActivity(req.user.id, `A créé le cahier "${title}"`, id);
-    const b = await db.prepare('SELECT * FROM books WHERE id = ?').get(id);
-    res.status(201).json(toPublicBook(b, { includeInternal: true }));
-  })
-);
-
-router.put(
-  '/:id',
-  authRequired,
-  requireRole('admin_content'),
-  upload.fields([{ name: 'cover', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]),
-  asyncHandler(async (req, res) => {
-    const b = await db.prepare('SELECT * FROM books WHERE id = ?').get(req.params.id);
-    if (!b) return res.status(404).json({ error: 'Cahier introuvable.' });
-
-    const { title, description, level, series, subjectId, author, isFree, price, previewPages, downloadsEnabled, downloadLimit } = req.body;
-    const cover = req.files?.cover?.[0];
-    const pdf = req.files?.pdf?.[0];
-
-    await db.prepare(`UPDATE books SET
-      title = COALESCE(?,title), description = COALESCE(?,description), level = COALESCE(?,level),
-      series = COALESCE(?,series), subject_id = COALESCE(?,subject_id), author = COALESCE(?,author),
-      cover_path = COALESCE(?,cover_path), pdf_path = COALESCE(?,pdf_path),
-      preview_pages = COALESCE(?,preview_pages), is_free = COALESCE(?,is_free), price = COALESCE(?,price),
-      downloads_enabled = COALESCE(?,downloads_enabled), download_limit = COALESCE(?,download_limit)
-      WHERE id = ?`
-    ).run(
-      title, description, level, series, subjectId, author,
-      cover ? cover.path : null, pdf ? pdf.path : null,
-      previewPages ? Number(previewPages) : null,
-      isFree === undefined ? null : (isFree === 'true' ? 1 : 0),
-      price ? Number(price) : null,
-      downloadsEnabled === undefined ? null : (downloadsEnabled === 'true' ? 1 : 0),
-      downloadLimit ? Number(downloadLimit) : null,
-      req.params.id
-    );
-    await logActivity(req.user.id, `A modifié le cahier "${b.title}"`, b.id);
-    const updated = await db.prepare('SELECT * FROM books WHERE id = ?').get(req.params.id);
-    res.json(toPublicBook(updated, { includeInternal: true }));
-  })
-);
-
-router.post('/:id/submit', authRequired, requireRole('admin_content'), asyncHandler(async (req, res) => {
-  await db.prepare("UPDATE books SET status = 'pending' WHERE id = ?").run(req.params.id);
-  await logActivity(req.user.id, 'A soumis un cahier pour validation', req.params.id);
-  res.json({ ok: true });
-}));
-
-router.post('/:id/validate', authRequired, requireRole('admin_validation'), asyncHandler(async (req, res) => {
-  const { decision } = req.body;
-  const status = decision === 'accept' ? 'published' : 'refused';
-  await db.prepare('UPDATE books SET status = ?, published_at = ? WHERE id = ?')
-    .run(status, status === 'published' ? new Date().toISOString() : null, req.params.id);
-  await logActivity(req.user.id, `A ${decision === 'accept' ? 'validé' : 'refusé'} le cahier`, req.params.id);
-  res.json({ ok: true, status });
-}));
-
-router.get('/admin/pending', authRequired, requireRole('admin_validation'), asyncHandler(async (req, res) => {
-  const rows = await db.prepare("SELECT * FROM books WHERE status = 'pending' ORDER BY created_at ASC").all();
-  res.json(rows.map((b) => toPublicBook(b, { includeInternal: true })));
-}));
-
-router.get('/admin/all', authRequired, requireRole('admin_content', 'admin_validation'), asyncHandler(async (req, res) => {
-  const rows = await db.prepare('SELECT * FROM books ORDER BY created_at DESC').all();
-  res.json(rows.map((b) => toPublicBook(b, { includeInternal: true })));
-}));
-
-router.post('/:id/archive', authRequired, requireRole('admin_content'), asyncHandler(async (req, res) => {
-  await db.prepare("UPDATE books SET status = 'archived' WHERE id = ?").run(req.params.id);
-  await logActivity(req.user.id, 'A archivé un cahier', req.params.id);
-  res.json({ ok: true });
-}));
-
-router.post('/:id/report', authRequired, asyncHandler(async (req, res) => {
-  const { reason } = req.body;
-  const id = uuid();
-  await db.prepare('INSERT INTO reports (id, book_id, reported_by, reason) VALUES (?,?,?,?)')
-    .run(id, req.params.id, req.user.id, reason || '');
-  await logActivity(req.user.id, 'A signalé un cahier', req.params.id);
-  res.status(201).json({ ok: true });
 }));
 
 module.exports = router;
