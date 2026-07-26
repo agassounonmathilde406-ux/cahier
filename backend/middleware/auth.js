@@ -3,7 +3,7 @@ const db = require('../db');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 
-function authRequired(req, res, next) {
+async function authRequired(req, res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Authentification requise.' });
@@ -11,7 +11,7 @@ function authRequired(req, res, next) {
   try {
     const token = header.slice(7);
     const payload = jwt.verify(token, JWT_SECRET);
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.sub);
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(payload.sub);
     if (!user) return res.status(401).json({ error: 'Utilisateur introuvable.' });
     if (user.status === 'suspended') {
       return res.status(403).json({ error: 'Ce compte est suspendu.' });
@@ -23,13 +23,13 @@ function authRequired(req, res, next) {
   }
 }
 
-function optionalAuth(req, res, next) {
+async function optionalAuth(req, res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) return next();
   try {
     const token = header.slice(7);
     const payload = jwt.verify(token, JWT_SECRET);
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.sub);
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(payload.sub);
     if (user && user.status !== 'suspended') req.user = user;
   } catch (e) { /* ignore */ }
   next();
@@ -46,12 +46,16 @@ function requireRole(...roles) {
 
 // Verifie une permission fine accordee par le proprietaire (ex: can_view_revenue)
 function requirePermission(permKey) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Authentification requise.' });
     if (req.user.role === 'owner') return next();
-    const perm = db.prepare('SELECT * FROM admin_permissions WHERE user_id = ?').get(req.user.id);
-    if (perm && perm[permKey]) return next();
-    return res.status(403).json({ error: "Permission insuffisante pour cette ressource sensible." });
+    try {
+      const perm = await db.prepare('SELECT * FROM admin_permissions WHERE user_id = ?').get(req.user.id);
+      if (perm && perm[permKey]) return next();
+      return res.status(403).json({ error: "Permission insuffisante pour cette ressource sensible." });
+    } catch (e) {
+      next(e);
+    }
   };
 }
 
