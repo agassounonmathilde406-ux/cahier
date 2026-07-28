@@ -1,31 +1,20 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { authRequired, optionalAuth, requireRole } = require('../middleware/auth');
 const { logActivity } = require('../utils/activityLog');
 const { extractPreview } = require('../utils/watermark');
+const { saveFile, isRemoteUrl } = require('../utils/fileStorage');
 const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', 'data');
-const COVERS_DIR = path.join(UPLOADS_DIR, 'covers');
-const PDFS_DIR = path.join(UPLOADS_DIR, 'pdfs');
-fs.mkdirSync(COVERS_DIR, { recursive: true });
-fs.mkdirSync(PDFS_DIR, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = file.fieldname === 'cover' ? COVERS_DIR : PDFS_DIR;
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => cb(null, `${uuid()}${path.extname(file.originalname)}`),
-});
+// Les fichiers sont reçus en mémoire puis envoyés vers Cloudinary (ou le
+// disque local en secours) via saveFile() — voir utils/fileStorage.js.
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 60 * 1024 * 1024 }, // 60MB
   fileFilter: (req, file, cb) => {
     if (file.fieldname === 'cover' && !file.mimetype.startsWith('image/')) {
@@ -38,6 +27,11 @@ const upload = multer({
   },
 });
 
+function coverUrlFor(coverPath) {
+  if (!coverPath) return null;
+  return isRemoteUrl(coverPath) ? coverPath : `/files/covers/${path.basename(coverPath)}`;
+}
+
 function toPublicBook(b, { includeInternal } = {}) {
   return {
     id: b.id,
@@ -47,7 +41,7 @@ function toPublicBook(b, { includeInternal } = {}) {
     series: b.series,
     subjectId: b.subject_id,
     author: b.author,
-    coverUrl: b.cover_path ? `/files/covers/${path.basename(b.cover_path)}` : null,
+    coverUrl: coverUrlFor(b.cover_path),
     previewPages: b.preview_pages,
     totalPages: b.total_pages,
     isFree: !!b.is_free,
@@ -128,16 +122,19 @@ router.post(
     if (!title || !level) return res.status(400).json({ error: 'Titre et niveau requis.' });
 
     const id = uuid();
-    const cover = req.files?.cover?.[0];
-    const pdf = req.files?.pdf?.[0];
+    const coverFile = req.files?.cover?.[0];
+    const pdfFile = req.files?.pdf?.[0];
     const status = req.user.role === 'owner' ? 'published' : 'pending';
+
+    const coverPath = coverFile ? await saveFile(coverFile.buffer, { kind: 'cover', extension: path.extname(coverFile.originalname) }) : null;
+    const pdfPath = pdfFile ? await saveFile(pdfFile.buffer, { kind: 'pdf', extension: '.pdf' }) : null;
 
     await db.prepare(`INSERT INTO books
       (id,title,description,level,series,subject_id,author,cover_path,pdf_path,preview_pages,is_free,price,status,created_by,published_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       id, title, description || '', level, series || null, subjectId || null, author || '',
-      cover ? cover.path : null, pdf ? pdf.path : null,
+      coverPath, pdfPath,
       Number(previewPages) || 5,
       isFree === 'true' ? 1 : 0,
       Number(price) || 1000,
@@ -161,8 +158,11 @@ router.put(
     if (!b) return res.status(404).json({ error: 'Cahier introuvable.' });
 
     const { title, description, level, series, subjectId, author, isFree, price, previewPages, downloadsEnabled, downloadLimit } = req.body;
-    const cover = req.files?.cover?.[0];
-    const pdf = req.files?.pdf?.[0];
+    const coverFile = req.files?.cover?.[0];
+    const pdfFile = req.files?.pdf?.[0];
+
+    const coverPath = coverFile ? await saveFile(coverFile.buffer, { kind: 'cover', extension: path.extname(coverFile.originalname) }) : null;
+    const pdfPath = pdfFile ? await saveFile(pdfFile.buffer, { kind: 'pdf', extension: '.pdf' }) : null;
 
     await db.prepare(`UPDATE books SET
       title = COALESCE(?,title), description = COALESCE(?,description), level = COALESCE(?,level),
@@ -173,7 +173,7 @@ router.put(
       WHERE id = ?`
     ).run(
       title, description, level, series, subjectId, author,
-      cover ? cover.path : null, pdf ? pdf.path : null,
+      coverPath, pdfPath,
       previewPages ? Number(previewPages) : null,
       isFree === undefined ? null : (isFree === 'true' ? 1 : 0),
       price ? Number(price) : null,
