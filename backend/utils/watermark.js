@@ -1,10 +1,10 @@
 // utils/watermark.js
 // Ajoute un filigrane discret (nom acheteur + n° commande + date) sur chaque page d'un PDF.
 const { PDFDocument, rgb, degrees, StandardFonts } = require('pdf-lib');
-const fs = require('fs');
+const { readFileBytes } = require('./fileStorage');
 
-async function watermarkPdf(sourcePath, { buyerName, orderNumber, date }) {
-  const bytes = fs.readFileSync(sourcePath);
+async function watermarkPdf(source, { buyerName, orderNumber, date }) {
+  const bytes = await readFileBytes(source);
   const pdfDoc = await PDFDocument.load(bytes);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const label = `Achete par : ${buyerName} — Commande #${orderNumber} — ${date}`;
@@ -26,8 +26,8 @@ async function watermarkPdf(sourcePath, { buyerName, orderNumber, date }) {
 }
 
 // Genere un aperçu contenant uniquement les N premieres pages du PDF complet.
-async function extractPreview(sourcePath, numPages) {
-  const bytes = fs.readFileSync(sourcePath);
+async function extractPreview(source, numPages) {
+  const bytes = await readFileBytes(source);
   const srcDoc = await PDFDocument.load(bytes);
   const outDoc = await PDFDocument.create();
   const total = srcDoc.getPageCount();
