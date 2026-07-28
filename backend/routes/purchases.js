@@ -1,6 +1,5 @@
 const express = require('express');
 const path = require('path');
-const fs = require('fs');
 const { v4: uuid } = require('uuid');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
@@ -8,6 +7,7 @@ const { authRequired } = require('../middleware/auth');
 const { logActivity } = require('../utils/activityLog');
 const { getProvider, listProviders } = require('../utils/payments');
 const { watermarkPdf } = require('../utils/watermark');
+const { readFileBytes } = require('../utils/fileStorage');
 const { JWT_SECRET } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -88,7 +88,9 @@ router.get('/library', authRequired, asyncHandler(async (req, res) => {
     author: r.author,
     level: r.level,
     series: r.series,
-    coverUrl: r.cover_path ? `/files/covers/${path.basename(r.cover_path)}` : null,
+    coverUrl: r.cover_path
+      ? (/^https?:\/\//i.test(r.cover_path) ? r.cover_path : `/files/covers/${path.basename(r.cover_path)}`)
+      : null,
     downloadCount: r.download_count,
     purchasedAt: r.purchased_at,
   })));
@@ -137,24 +139,24 @@ router.get('/download/:token', asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'Lien de téléchargement expiré ou invalide.' });
   }
   const book = await db.prepare('SELECT * FROM books WHERE id = ?').get(payload.bookId);
-  if (!book || !book.pdf_path || !fs.existsSync(book.pdf_path)) {
+  if (!book || !book.pdf_path) {
     return res.status(404).json({ error: 'Fichier introuvable.' });
   }
 
   try {
+    let bytes;
     if (payload.kind === 'free') {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', contentDisposition('attachment', book.title));
-      return fs.createReadStream(book.pdf_path).pipe(res);
+      bytes = await readFileBytes(book.pdf_path);
+    } else {
+      const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(payload.userId);
+      bytes = await watermarkPdf(book.pdf_path, {
+        buyerName: user.name,
+        orderNumber: payload.purchaseId.slice(0, 8).toUpperCase(),
+        date: new Date().toLocaleDateString('fr-FR'),
+      });
+      await db.prepare('UPDATE purchases SET download_count = download_count + 1 WHERE id = ?').run(payload.purchaseId);
+      await logActivity(payload.userId, `A téléchargé le cahier "${book.title}"`, book.id);
     }
-    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(payload.userId);
-    const bytes = await watermarkPdf(book.pdf_path, {
-      buyerName: user.name,
-      orderNumber: payload.purchaseId.slice(0, 8).toUpperCase(),
-      date: new Date().toLocaleDateString('fr-FR'),
-    });
-    await db.prepare('UPDATE purchases SET download_count = download_count + 1 WHERE id = ?').run(payload.purchaseId);
-    await logActivity(payload.userId, `A téléchargé le cahier "${book.title}"`, book.id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', contentDisposition('attachment', book.title));
     res.send(Buffer.from(bytes));
