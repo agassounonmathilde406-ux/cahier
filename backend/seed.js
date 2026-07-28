@@ -1,12 +1,11 @@
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const { v4: uuid } = require('uuid');
-const fs = require('fs');
-const path = require('path');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 const db = require('./db');
+const { saveFile } = require('./utils/fileStorage');
 
-async function makeSamplePdf(filePath, title, pages) {
+async function makeSamplePdfBytes(title, pages) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.HelveticaBold);
   for (let i = 1; i <= pages; i++) {
@@ -14,15 +13,11 @@ async function makeSamplePdf(filePath, title, pages) {
     page.drawText(title, { x: 50, y: 780, size: 20, font, color: rgb(0.1, 0.1, 0.4) });
     page.drawText(`Page ${i} / ${pages}`, { x: 50, y: 740, size: 12, font, color: rgb(0.3, 0.3, 0.3) });
   }
-  fs.writeFileSync(filePath, await doc.save());
+  return doc.save();
 }
 
 async function seed() {
   await db.initSchema();
-
-  const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, 'data');
-  const pdfsDir = path.join(uploadsDir, 'pdfs');
-  fs.mkdirSync(pdfsDir, { recursive: true });
 
   const ownerEmail = process.env.OWNER_EMAIL || 'owner@cahiers-benin.com';
   const ownerPassword = process.env.OWNER_PASSWORD || 'ChangeMe123!';
@@ -63,8 +58,8 @@ async function seed() {
     const exists = await db.prepare('SELECT * FROM books WHERE title = ?').get(b.title);
     if (exists) continue;
     const id = uuid();
-    const pdfPath = path.join(pdfsDir, `${id}.pdf`);
-    await makeSamplePdf(pdfPath, b.title, b.pages);
+    const bytes = await makeSamplePdfBytes(b.title, b.pages);
+    const pdfPath = await saveFile(Buffer.from(bytes), { kind: 'pdf', extension: '.pdf' });
     await db.prepare(`INSERT INTO books
       (id,title,description,level,series,subject_id,author,cover_path,pdf_path,preview_pages,total_pages,is_free,price,status,created_by,published_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
