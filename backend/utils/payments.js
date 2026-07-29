@@ -54,7 +54,7 @@ function makeFedapayProvider(mode, name, label) {
             firstname: 'Client',
             lastname: 'Kajye',
             email: `${reference}@client.kajye.bj`,
-            phone,
+            phone_number: { number: phone, country: 'bj' },
           },
         }),
       });
