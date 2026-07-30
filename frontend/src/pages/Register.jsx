@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import GoogleButton from '../components/GoogleButton.jsx';
 
 export default function Register() {
   const { register } = useAuth();
@@ -30,6 +31,10 @@ export default function Register() {
     <div>
       <h1>Créer un compte</h1>
       {error && <p className="error-box">{error}</p>}
+
+      <GoogleButton />
+      <p style={{ textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12, margin: '10px 0' }}>ou avec ton email/téléphone</p>
+
       <form className="form-card" onSubmit={submit}>
         <div className="field">
           <label>Nom complet</label>
