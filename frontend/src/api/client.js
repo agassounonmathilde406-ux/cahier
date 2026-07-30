@@ -1,4 +1,8 @@
-const BASE = '/api';
+// En dev, Vite proxifie /api vers http://localhost:4000 (voir vite.config.js).
+// En production, définissez VITE_API_URL (ex: https://kajye-api.onrender.com)
+// dans les variables d'environnement de votre hébergeur front-end.
+export const API_ORIGIN = import.meta.env.VITE_API_URL || '';
+const BASE = `${API_ORIGIN}/api`;
 
 async function request(path, { method = 'GET', body, token, formData } = {}) {
   const headers = {};
@@ -22,6 +26,7 @@ async function request(path, { method = 'GET', body, token, formData } = {}) {
 export const api = {
   register: (body) => request('/auth/register', { method: 'POST', body }),
   login: (body) => request('/auth/login', { method: 'POST', body }),
+  googleLogin: (idToken) => request('/auth/google', { method: 'POST', body: { idToken } }),
   me: (token) => request('/auth/me', { token }),
   updateMe: (body, token) => request('/auth/me', { method: 'PUT', body, token }),
 
