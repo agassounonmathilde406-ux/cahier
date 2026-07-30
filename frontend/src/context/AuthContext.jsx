@@ -3,13 +3,34 @@ import { api } from '../api/client.js';
 
 const AuthContext = createContext(null);
 
-// NB: pas de localStorage dans ce sandbox de démo -> la session vit en mémoire
-// (React state). Dans un déploiement réel, stockez le token de façon sécurisée
-// (ex: cookie httpOnly côté serveur, ou SecureStore côté app mobile).
+// La session est sauvegardee dans localStorage pour survivre a une fermeture
+// de l'onglet/appli, un redemarrage du telephone, etc.
+const STORAGE_KEY = 'kajye_session';
+
+function loadStoredSession() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { token: null, user: null };
+    const parsed = JSON.parse(raw);
+    return { token: parsed.token || null, user: parsed.user || null };
+  } catch (e) {
+    return { token: null, user: null };
+  }
+}
+
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(null);
-  const [user, setUser] = useState(null);
+  const initial = loadStoredSession();
+  const [token, setToken] = useState(initial.token);
+  const [user, setUser] = useState(initial.user);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (token && user) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, user }));
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, [token, user]);
 
   const login = useCallback(async (identifier, password) => {
     const data = await api.login({ identifier, password });
@@ -36,6 +57,9 @@ export function AuthProvider({ children }) {
     try {
       const data = await api.me(token);
       setUser(data.user);
+    } catch (e) {
+      setToken(null);
+      setUser(null);
     } finally {
       setLoading(false);
     }
@@ -52,4 +76,4 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   return useContext(AuthContext);
-}
+      }
