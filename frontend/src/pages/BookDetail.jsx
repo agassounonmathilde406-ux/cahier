@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { api } from '../api/client.js';
+import { api, API_ORIGIN } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import Mascot from '../components/Mascot.jsx';
+import Confetti from '../components/Confetti.jsx';
 
 export default function BookDetail() {
   const { id } = useParams();
@@ -15,6 +17,7 @@ export default function BookDetail() {
   const [pending, setPending] = useState(null); // { purchaseId, message }
   const [checking, setChecking] = useState(false);
   const [owned, setOwned] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
 
   useEffect(() => {
     api.book(id, token).then(setBook).catch((e) => setError(e.message));
@@ -26,7 +29,12 @@ export default function BookDetail() {
   }, [id, token]);
 
   if (error) return <p className="error-box">{error}</p>;
-  if (!book) return <div className="skeleton" style={{ height: 300 }} />;
+  if (!book) return <Mascot label="Chargement du cahier" />;
+
+  function fireConfetti() {
+    setCelebrate(true);
+    setTimeout(() => setCelebrate(false), 4000);
+  }
 
   async function startPurchase() {
     if (!token) return navigate('/connexion');
@@ -50,6 +58,7 @@ export default function BookDetail() {
       if (res.status === 'success') {
         setOwned(true);
         setPending(null);
+        fireConfetti();
       } else if (res.status === 'failed') {
         setError('Le paiement a échoué. Réessaie.');
         setPending(null);
@@ -67,6 +76,7 @@ export default function BookDetail() {
     try {
       const { url } = await api.downloadLink(book.id, token);
       window.location.href = url;
+      fireConfetti();
     } catch (e) {
       setError(e.message);
     }
@@ -74,8 +84,9 @@ export default function BookDetail() {
 
   return (
     <div>
+      <Confetti fire={celebrate} />
       <div className="detail-cover">
-        {book.coverUrl && <img src={book.coverUrl} alt="" />}
+        {book.coverUrl && <img src={`${API_ORIGIN}${book.coverUrl}`} alt="" />}
         <h1 style={{ color: 'white', position: 'relative', margin: 0 }}>{book.title}</h1>
       </div>
 
@@ -130,6 +141,7 @@ export default function BookDetail() {
               <button className="btn btn-gold btn-block" onClick={confirmPurchase} disabled={checking}>
                 {checking ? 'Vérification…' : "J'ai confirmé le paiement sur mon téléphone"}
               </button>
+              {checking && <Mascot label="Vérification du paiement" />}
             </div>
           )}
         </>
