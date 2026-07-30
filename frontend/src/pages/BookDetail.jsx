@@ -86,7 +86,7 @@ export default function BookDetail() {
     <div>
       <Confetti fire={celebrate} />
       <div className="detail-cover">
-        {book.coverUrl && <img src={`${API_ORIGIN}${book.coverUrl}`} alt="" />}
+        {book.coverUrl && <img src={book.coverUrl} alt="" />}
         <h1 style={{ color: 'white', position: 'relative', margin: 0 }}>{book.title}</h1>
       </div>
 
