@@ -46,6 +46,13 @@ export function AuthProvider({ children }) {
     return data.user;
   }, []);
 
+  const loginWithGoogle = useCallback(async (idToken) => {
+    const data = await api.googleLogin(idToken);
+    setToken(data.token);
+    setUser(data.user);
+    return data.user;
+  }, []);
+
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
@@ -68,7 +75,7 @@ export function AuthProvider({ children }) {
   useEffect(() => { if (token) refreshMe(); }, [token]); // eslint-disable-line
 
   return (
-    <AuthContext.Provider value={{ token, user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ token, user, loading, login, register, loginWithGoogle, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -76,4 +83,4 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   return useContext(AuthContext);
-      }
+}
