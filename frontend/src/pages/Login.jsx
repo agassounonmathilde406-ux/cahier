@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import GoogleButton from '../components/GoogleButton.jsx';
 
 export default function Login() {
   const { login } = useAuth();
@@ -28,6 +29,10 @@ export default function Login() {
     <div>
       <h1>Connexion</h1>
       {error && <p className="error-box">{error}</p>}
+
+      <GoogleButton />
+      <p style={{ textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12, margin: '10px 0' }}>ou avec ton email/téléphone</p>
+
       <form className="form-card" onSubmit={submit}>
         <div className="field">
           <label>Email ou téléphone</label>
