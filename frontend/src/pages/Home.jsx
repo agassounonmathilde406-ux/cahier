@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import BookCard from '../components/BookCard.jsx';
+import Mascot from '../components/Mascot.jsx';
 
 const LEVELS = ['6eme', '5eme', '4eme', '3eme', 'Seconde', 'Premiere', 'Terminale'];
 
@@ -25,6 +26,8 @@ export default function Home() {
     }, 250);
     return () => clearTimeout(t);
   }, [q, level]);
+
+  const firstLoad = !q && !level && free === null && popular === null && books === null;
 
   return (
     <div>
@@ -53,10 +56,12 @@ export default function Home() {
 
       {error && <p className="error-box">{error}</p>}
 
-      {(q || level) ? (
+      {firstLoad ? (
+        <Mascot label="Chargement des cahiers" />
+      ) : (q || level) ? (
         <>
           <h2>Résultats</h2>
-          {books === null ? <Skeleton /> : books.length === 0 ? (
+          {books === null ? <Mascot label="Recherche en cours" /> : books.length === 0 ? (
             <div className="empty-state"><span className="ic">📭</span>Aucun cahier ne correspond à ta recherche.</div>
           ) : (
             <div className="book-grid">{books.map((b) => <BookCard key={b.id} book={b} />)}</div>
@@ -86,20 +91,4 @@ export default function Home() {
       )}
     </div>
   );
-}
-
-function Skeleton() {
-  return (
-    <div className="book-grid">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="book-card">
-          <div className="skeleton" style={{ aspectRatio: '3/4' }} />
-          <div style={{ padding: 12 }}>
-            <div className="skeleton" style={{ height: 12, marginBottom: 8 }} />
-            <div className="skeleton" style={{ height: 12, width: '60%' }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
+              }
