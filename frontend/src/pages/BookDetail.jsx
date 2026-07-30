@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { api, API_ORIGIN } from '../api/client.js';
+import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import Mascot from '../components/Mascot.jsx';
 import Confetti from '../components/Confetti.jsx';
