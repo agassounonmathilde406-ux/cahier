@@ -64,4 +64,43 @@ router.put('/me', authRequired, asyncHandler(async (req, res) => {
   res.json({ user: publicUser(user) });
 }));
 
+// ---------- CONNEXION AVEC GOOGLE ----------
+router.post('/google', asyncHandler(async (req, res) => {
+  const { idToken } = req.body;
+  if (!idToken) return res.status(400).json({ error: 'Jeton Google requis.' });
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    return res.status(500).json({ error: "La connexion Google n'est pas configurée." });
+  }
+
+  const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+  const payload = await verifyRes.json();
+  if (!verifyRes.ok || !payload.email) {
+    return res.status(401).json({ error: 'Jeton Google invalide.' });
+  }
+  if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+    return res.status(401).json({ error: 'Ce jeton Google ne correspond pas à ce site.' });
+  }
+  if (payload.email_verified === 'false') {
+    return res.status(401).json({ error: "L'email Google associé n'est pas vérifié." });
+  }
+
+  let user = await db.prepare('SELECT * FROM users WHERE google_id = ? OR email = ?').get(payload.sub, payload.email);
+
+  if (!user) {
+    const id = uuid();
+    const unusableHash = bcrypt.hashSync(uuid(), 10);
+    await db.prepare(
+      'INSERT INTO users (id,name,email,password_hash,role,google_id) VALUES (?,?,?,?,?,?)'
+    ).run(id, payload.name || payload.email.split('@')[0], payload.email, unusableHash, 'user', payload.sub);
+    user = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    await logActivity(id, 'Inscription via Google', payload.email);
+  } else if (!user.google_id) {
+    await db.prepare('UPDATE users SET google_id = ? WHERE id = ?').run(payload.sub, user.id);
+    user = await db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+  }
+
+  if (user.status === 'suspended') return res.status(403).json({ error: 'Ce compte est suspendu.' });
+  res.json({ token: sign(user), user: publicUser(user) });
+}));
+
 module.exports = router;
