@@ -125,16 +125,43 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Codes de verification par SMS (inscription/connexion par numero de telephone)
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id TEXT PRIMARY KEY,
+  phone TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_books_level ON books(level);
 CREATE INDEX IF NOT EXISTS idx_books_subject ON books(subject_id);
 CREATE INDEX IF NOT EXISTS idx_purchases_user ON purchases(user_id);
 CREATE INDEX IF NOT EXISTS idx_purchases_book ON purchases(book_id);
+CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_codes(phone);
 `;
+
+// Ajoute une colonne a une table existante si elle n'existe pas deja.
+// (CREATE TABLE IF NOT EXISTS ne modifie jamais une table deja creee, donc les
+// nouvelles colonnes ajoutees plus tard doivent passer par ce mini-systeme de
+// migration, volontairement tres simple et sans dependance.)
+async function ensureColumn(table, column, definition) {
+  const info = await client.execute(`PRAGMA table_info(${table})`);
+  const exists = info.rows.some((r) => r.name === column);
+  if (!exists) {
+    await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
 
 // Doit être appelé une fois au démarrage du serveur avant de traiter des
 // requêtes (voir server.js).
 async function initSchema() {
   await client.executeMultiple(SCHEMA);
+  // Connexion Google : identifiant Google unique, et mot de passe rendu
+  // optionnel (un compte cree via Google n'a pas de mot de passe classique).
+  await ensureColumn('users', 'google_id', 'TEXT');
+  await ensureColumn('users', 'phone_verified', 'INTEGER NOT NULL DEFAULT 0');
 }
 
 module.exports = { prepare, client, initSchema };
