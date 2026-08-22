@@ -2,15 +2,15 @@
 // Systeme de paiement MODULAIRE. Chaque moyen de paiement implemente la meme
 // interface { initiate(purchase), checkStatus(reference) }.
 //
-// Integration FedaPay (https://fedapay.com) : agregateur beninois qui gere
-// MTN Mobile Money ET Moov Money avec une seule API. On utilise ici le mode
-// "paiement sans redirection" (push direct sur le telephone du client),
-// disponible pour MTN Benin et Moov Benin.
-//
-// Variables requises dans .env :
-//   FEDAPAY_API_KEY         (cle secrete, sandbox ou live)
-//   FEDAPAY_ENVIRONMENT     ("sandbox" ou "live", defaut: sandbox)
+// Deux modes possibles, controles par un reglage en base (table "settings",
+// cle "payment_mode") que le proprietaire peut basculer depuis l'admin :
+//   - "fedapay"  : paiement automatique via FedaPay (MTN/Moov Bénin)
+//   - "manual"   : le client envoie l'argent lui-meme au numero du
+//                  proprietaire (Mobile Money + WhatsApp pour le reçu), et le
+//                  proprietaire confirme manuellement l'achat depuis l'admin
+//                  une fois le reçu recu.
 
+const db = require('../db');
 const PROVIDERS = {};
 
 const FEDAPAY_ENV = process.env.FEDAPAY_ENVIRONMENT === 'live' ? 'live' : 'sandbox';
@@ -89,7 +89,34 @@ function makeFedapayProvider(mode, name, label) {
 PROVIDERS.moov_money = makeFedapayProvider('moov', 'moov_money', 'Moov Money Bénin');
 PROVIDERS.mtn_money = makeFedapayProvider('mtn_open', 'mtn_money', 'MTN Mobile Money');
 
-function getProvider(name) {
+// ---------- Paiement manuel (envoi direct au numéro + reçu WhatsApp) ----------
+const MANUAL_PHONE = process.env.MANUAL_PAYMENT_PHONE || '0194180824';
+
+const manualProvider = {
+  name: 'manual_whatsapp',
+  label: `Envoi direct (${MANUAL_PHONE})`,
+  async initiate({ amount, reference }) {
+    return {
+      status: 'pending',
+      providerReference: reference,
+      message: `Envoie ${amount.toLocaleString('fr-FR')} FCFA (Mobile Money) au ${MANUAL_PHONE}, puis envoie une capture du reçu sur WhatsApp au même numéro en précisant ce code : ${reference.slice(0, 8).toUpperCase()}. Ton cahier sera débloqué dès validation.`,
+    };
+  },
+  async checkStatus(reference) {
+    const purchase = await db.prepare('SELECT status FROM purchases WHERE id = ?').get(reference);
+    return { status: purchase ? purchase.status : 'pending' };
+  },
+};
+PROVIDERS.manual_whatsapp = manualProvider;
+
+async function getActivePaymentMode() {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'payment_mode'").get();
+  return row?.value === 'manual' ? 'manual' : 'fedapay';
+}
+
+async function getProvider(name) {
+  const mode = await getActivePaymentMode();
+  if (mode === 'manual') return manualProvider;
   const p = PROVIDERS[name];
   if (!p) throw new Error(`Moyen de paiement inconnu : ${name}`);
   return p;
@@ -99,8 +126,4 @@ function listProviders() {
   return Object.values(PROVIDERS).map((p) => ({ id: p.name, label: p.label }));
 }
 
-function registerProvider(provider) {
-  PROVIDERS[provider.name] = provider;
-}
-
-module.exports = { getProvider, listProviders, registerProvider };
+module.exports = { getProvider, listProviders, getActivePaymentMode };
