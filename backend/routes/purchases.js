@@ -35,17 +35,17 @@ router.post('/', authRequired, asyncHandler(async (req, res) => {
   }
 
   const purchaseId = already ? already.id : uuid();
-  const provider = getProvider(paymentMethod);
+  const provider = await getProvider(paymentMethod);
 
   try {
     const result = await provider.initiate({ amount: book.price, phone, reference: purchaseId });
     if (!already) {
       await db.prepare(`INSERT INTO purchases (id,user_id,book_id,amount,payment_method,payment_reference,status)
         VALUES (?,?,?,?,?,?,?)`)
-        .run(purchaseId, req.user.id, bookId, book.price, paymentMethod, result.providerReference, 'pending');
+        .run(purchaseId, req.user.id, bookId, book.price, provider.name, result.providerReference, 'pending');
     } else {
-      await db.prepare('UPDATE purchases SET payment_reference = ?, status = ? WHERE id = ?')
-        .run(result.providerReference, 'pending', purchaseId);
+      await db.prepare('UPDATE purchases SET payment_method = ?, payment_reference = ?, status = ? WHERE id = ?')
+        .run(provider.name, result.providerReference, 'pending', purchaseId);
     }
     await logActivity(req.user.id, `A initié l'achat du cahier "${book.title}"`, purchaseId);
     res.status(201).json({ purchaseId, status: 'pending', message: result.message });
@@ -60,7 +60,7 @@ router.post('/:id/confirm', authRequired, asyncHandler(async (req, res) => {
   if (purchase.status === 'success') return res.json({ status: 'success' });
   if (purchase.status !== 'pending') return res.status(409).json({ error: `Transaction ${purchase.status}.` });
 
-  const provider = getProvider(purchase.payment_method);
+  const provider = await getProvider(purchase.payment_method);
   const result = await provider.checkStatus(purchase.payment_reference);
 
   if (result.status === 'success') {
