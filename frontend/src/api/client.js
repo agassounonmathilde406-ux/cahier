@@ -1,6 +1,3 @@
-// En dev, Vite proxifie /api vers http://localhost:4000 (voir vite.config.js).
-// En production, définissez VITE_API_URL (ex: https://kajye-api.onrender.com)
-// dans les variables d'environnement de votre hébergeur front-end.
 export const API_ORIGIN = import.meta.env.VITE_API_URL || '';
 const BASE = `${API_ORIGIN}/api`;
 
@@ -9,7 +6,7 @@ async function request(path, { method = 'GET', body, token, formData } = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
   let payload = body;
   if (formData) {
-    payload = body; // FormData sets its own Content-Type boundary
+    payload = body;
   } else if (body) {
     headers['Content-Type'] = 'application/json';
     payload = JSON.stringify(body);
@@ -53,11 +50,14 @@ export const api = {
   downloadLink: (bookId, token) => request(`/purchases/${bookId}/download-link`, { token }),
 
   dashboard: (token) => request('/admin/dashboard', { token }),
+  settings: (token) => request('/admin/settings', { token }),
+  setPaymentMode: (mode, token) => request('/admin/settings/payment-mode', { method: 'POST', body: { mode }, token }),
   transactions: (params, token) => {
     const qs = new URLSearchParams(Object.entries(params || {}).filter(([, v]) => v)).toString();
     return request(`/admin/transactions${qs ? `?${qs}` : ''}`, { token });
   },
   refund: (id, body, token) => request(`/admin/transactions/${id}/refund`, { method: 'POST', body, token }),
+  confirmManual: (id, token) => request(`/admin/transactions/${id}/confirm-manual`, { method: 'POST', token }),
   users: (q, token) => request(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`, { token }),
   userDetail: (id, token) => request(`/admin/users/${id}`, { token }),
   suspendUser: (id, token) => request(`/admin/users/${id}/suspend`, { method: 'POST', token }),
