@@ -17,14 +17,6 @@ const authToken = process.env.TURSO_AUTH_TOKEN; // non requis en mode fichier lo
 
 const client = createClient(authToken ? { url, authToken } : { url });
 
-// Petite couche de compatibilité qui imite l'API synchrone de better-sqlite3
-// (db.prepare(sql).get/.all/.run(...args)) mais renvoie des Promises, puisque
-// libSQL communique par le réseau. Cela limite les changements nécessaires
-// dans le reste du code : il suffit d'ajouter `await` devant chaque appel.
-// libSQL refuse les valeurs "undefined" en paramètre (contrairement à
-// better-sqlite3 qui les tolérait dans ce projet) — on les convertit en null
-// pour garder le même comportement (COALESCE(?, colonne) => garde l'ancienne
-// valeur si le champ n'a pas été envoyé).
 function cleanArgs(args) {
   return args.map((a) => (a === undefined ? null : a));
 }
@@ -135,6 +127,12 @@ CREATE TABLE IF NOT EXISTS otp_codes (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Reglages generaux du site (cle/valeur), ex: quel moyen de paiement est actif
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_books_level ON books(level);
 CREATE INDEX IF NOT EXISTS idx_books_subject ON books(subject_id);
 CREATE INDEX IF NOT EXISTS idx_purchases_user ON purchases(user_id);
@@ -142,10 +140,6 @@ CREATE INDEX IF NOT EXISTS idx_purchases_book ON purchases(book_id);
 CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_codes(phone);
 `;
 
-// Ajoute une colonne a une table existante si elle n'existe pas deja.
-// (CREATE TABLE IF NOT EXISTS ne modifie jamais une table deja creee, donc les
-// nouvelles colonnes ajoutees plus tard doivent passer par ce mini-systeme de
-// migration, volontairement tres simple et sans dependance.)
 async function ensureColumn(table, column, definition) {
   const info = await client.execute(`PRAGMA table_info(${table})`);
   const exists = info.rows.some((r) => r.name === column);
@@ -158,10 +152,12 @@ async function ensureColumn(table, column, definition) {
 // requêtes (voir server.js).
 async function initSchema() {
   await client.executeMultiple(SCHEMA);
-  // Connexion Google : identifiant Google unique, et mot de passe rendu
-  // optionnel (un compte cree via Google n'a pas de mot de passe classique).
   await ensureColumn('users', 'google_id', 'TEXT');
   await ensureColumn('users', 'phone_verified', 'INTEGER NOT NULL DEFAULT 0');
+  await client.execute({
+    sql: "INSERT INTO settings (key, value) VALUES ('payment_mode', 'fedapay') ON CONFLICT(key) DO NOTHING",
+    args: [],
+  });
 }
 
 module.exports = { prepare, client, initSchema };
