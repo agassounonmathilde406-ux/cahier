@@ -8,7 +8,6 @@ const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
 
-// ---------- TABLEAU DE BORD / REVENUS (propriétaire, ou admin avec permission) ----------
 router.get('/dashboard', authRequired, requirePermission('can_view_revenue'), asyncHandler(async (req, res) => {
   const totalUsers = (await db.prepare('SELECT COUNT(*) c FROM users').get()).c;
   const totalBooks = (await db.prepare("SELECT COUNT(*) c FROM books WHERE status='published'").get()).c;
@@ -49,7 +48,23 @@ router.get('/dashboard', authRequired, requirePermission('can_view_revenue'), as
   });
 }));
 
-// ---------- TRANSACTIONS ----------
+router.get('/settings', authRequired, requirePermission('can_manage_payments'), asyncHandler(async (req, res) => {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'payment_mode'").get();
+  res.json({ paymentMode: row?.value === 'manual' ? 'manual' : 'fedapay' });
+}));
+
+router.post('/settings/payment-mode', authRequired, requirePermission('can_manage_payments'), asyncHandler(async (req, res) => {
+  const { mode } = req.body;
+  if (!['fedapay', 'manual'].includes(mode)) {
+    return res.status(400).json({ error: "Mode invalide (attendu: 'fedapay' ou 'manual')." });
+  }
+  await db.prepare(
+    "INSERT INTO settings (key, value) VALUES ('payment_mode', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).run(mode);
+  await logActivity(req.user.id, `A basculé le moyen de paiement sur "${mode}"`, 'payment_mode');
+  res.json({ paymentMode: mode });
+}));
+
 router.get('/transactions', authRequired, requirePermission('can_view_revenue'), asyncHandler(async (req, res) => {
   const { id, userId, reference, bookId, date, status } = req.query;
   let sql = `SELECT p.*, u.name as user_name, b.title as book_title FROM purchases p
@@ -75,7 +90,19 @@ router.post('/transactions/:id/refund', authRequired, requirePermission('can_man
   res.json({ ok: true });
 }));
 
-// ---------- GESTION DES UTILISATEURS ----------
+router.post('/transactions/:id/confirm-manual', authRequired, requirePermission('can_manage_payments'), asyncHandler(async (req, res) => {
+  const purchase = await db.prepare('SELECT * FROM purchases WHERE id = ?').get(req.params.id);
+  if (!purchase) return res.status(404).json({ error: 'Transaction introuvable.' });
+  if (purchase.status === 'success') return res.json({ ok: true, status: 'success' });
+  if (purchase.status !== 'pending') {
+    return res.status(400).json({ error: `Impossible de confirmer une transaction "${purchase.status}".` });
+  }
+  await db.prepare("UPDATE purchases SET status = 'success', confirmed_at = datetime('now') WHERE id = ?").run(purchase.id);
+  const book = await db.prepare('SELECT * FROM books WHERE id = ?').get(purchase.book_id);
+  await logActivity(req.user.id, `A confirmé manuellement le paiement de "${book?.title || purchase.book_id}"`, purchase.id);
+  res.json({ ok: true, status: 'success' });
+}));
+
 router.get('/users', authRequired, requireRole('admin_users'), asyncHandler(async (req, res) => {
   const { q } = req.query;
   let sql = 'SELECT id,name,email,phone,role,status,created_at FROM users WHERE 1=1';
@@ -109,7 +136,6 @@ router.post('/users/:id/reactivate', authRequired, requireRole('admin_users'), a
   res.json({ ok: true });
 }));
 
-// ---------- GESTION DES ADMINISTRATEURS (proprietaire uniquement, sauf permission) ----------
 router.get('/admins', authRequired, requireRole(), asyncHandler(async (req, res) => {
   const rows = await db.prepare(`
     SELECT u.id,u.name,u.email,u.phone,u.role,u.status,
@@ -154,7 +180,6 @@ router.delete('/admins/:id', authRequired, requirePermission('can_manage_admins'
   res.json({ ok: true });
 }));
 
-// ---------- JOURNAL D'ACTIVITE ----------
 router.get('/activity-log', authRequired, requireRole(), asyncHandler(async (req, res) => {
   const rows = await db.prepare(`
     SELECT a.*, u.name as user_name FROM activity_log a LEFT JOIN users u ON u.id = a.user_id
@@ -162,7 +187,6 @@ router.get('/activity-log', authRequired, requireRole(), asyncHandler(async (req
   res.json(rows);
 }));
 
-// ---------- SIGNALEMENTS ----------
 router.get('/reports', authRequired, requireRole('admin_content', 'admin_validation'), asyncHandler(async (req, res) => {
   const rows = await db.prepare(`
     SELECT r.*, b.title as book_title FROM reports r JOIN books b ON b.id = r.book_id
