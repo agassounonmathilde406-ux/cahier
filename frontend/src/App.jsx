@@ -4,6 +4,7 @@ import { useAuth } from './context/AuthContext.jsx';
 
 import Header from './components/Header.jsx';
 import BottomNav from './components/BottomNav.jsx';
+import FloatingMascot from './components/FloatingMascot.jsx';
 
 import Home from './pages/Home.jsx';
 import BookDetail from './pages/BookDetail.jsx';
@@ -57,6 +58,7 @@ export default function App() {
         <Route path="*" element={<div className="empty-state"><span className="ic">🔎</span>Page introuvable.</div>} />
       </Routes>
       <BottomNav />
+      <FloatingMascot />
     </div>
   );
 }
