@@ -21,8 +21,8 @@ router.get('/dashboard', authRequired, requirePermission('can_view_revenue'), as
   const week = await db.prepare(`
     SELECT COUNT(*) c, COALESCE(SUM(amount),0) s FROM purchases
     WHERE status='success' AND strftime('%Y-%W', confirmed_at) = strftime('%Y-%W','now')`).get();
-  const failed = (await db.prepare("SELECT COUNT(*) c FROM purchases WHERE status='failed'").get()).c;
-  const refunded = (await db.prepare("SELECT COUNT(*) c FROM purchases WHERE status='refunded'").get()).c;
+  const walletBalanceTotal = (await db.prepare('SELECT COALESCE(SUM(balance),0) s FROM users').get()).s;
+  const pendingRecharges = (await db.prepare("SELECT COUNT(*) c FROM wallet_transactions WHERE status='pending'").get()).c;
 
   const salesByDay = await db.prepare(`
     SELECT date(confirmed_at) as day, COUNT(*) as count, SUM(amount) as revenue
@@ -43,7 +43,7 @@ router.get('/dashboard', authRequired, requirePermission('can_view_revenue'), as
     totalSales: sales.c, totalRevenue: sales.s,
     todaySales: today.c, todayRevenue: today.s,
     weekRevenue: week.s, monthRevenue: month.s,
-    failedTransactions: failed, refundedTransactions: refunded,
+    walletBalanceTotal, pendingRecharges,
     salesByDay, topSelling, mostViewed,
   });
 }));
@@ -61,18 +61,51 @@ router.post('/settings/payment-mode', authRequired, requirePermission('can_manag
   await db.prepare(
     "INSERT INTO settings (key, value) VALUES ('payment_mode', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
   ).run(mode);
-  await logActivity(req.user.id, `A basculé le moyen de paiement sur "${mode}"`, 'payment_mode');
+  await logActivity(req.user.id, `A basculé le moyen de paiement (recharges) sur "${mode}"`, 'payment_mode');
   res.json({ paymentMode: mode });
 }));
 
+router.get('/wallet-transactions', authRequired, requirePermission('can_view_revenue'), asyncHandler(async (req, res) => {
+  const { id, userId, status } = req.query;
+  let sql = `SELECT w.*, u.name as user_name FROM wallet_transactions w
+    JOIN users u ON u.id = w.user_id WHERE 1=1`;
+  const params = [];
+  if (id) { sql += ' AND w.id = ?'; params.push(id); }
+  if (userId) { sql += ' AND w.user_id = ?'; params.push(userId); }
+  if (status) { sql += ' AND w.status = ?'; params.push(status); }
+  sql += ' ORDER BY w.created_at DESC LIMIT 200';
+  res.json(await db.prepare(sql).all(...params));
+}));
+
+router.post('/wallet-transactions/:id/confirm-manual', authRequired, requirePermission('can_manage_payments'), asyncHandler(async (req, res) => {
+  const tx = await db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(req.params.id);
+  if (!tx) return res.status(404).json({ error: 'Recharge introuvable.' });
+  if (tx.status === 'success') return res.json({ ok: true, status: 'success' });
+  if (tx.status !== 'pending') {
+    return res.status(400).json({ error: `Impossible de confirmer une recharge "${tx.status}".` });
+  }
+  await db.prepare("UPDATE wallet_transactions SET status = 'success', confirmed_at = datetime('now') WHERE id = ?").run(tx.id);
+  await db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(tx.amount, tx.user_id);
+  await logActivity(req.user.id, `A confirmé manuellement une recharge de ${tx.amount} FCFA`, tx.id);
+  res.json({ ok: true, status: 'success' });
+}));
+
+router.post('/wallet-transactions/:id/reject', authRequired, requirePermission('can_manage_payments'), asyncHandler(async (req, res) => {
+  const tx = await db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(req.params.id);
+  if (!tx) return res.status(404).json({ error: 'Recharge introuvable.' });
+  if (tx.status !== 'pending') return res.status(400).json({ error: 'Seule une recharge en attente peut être rejetée.' });
+  await db.prepare("UPDATE wallet_transactions SET status = 'failed' WHERE id = ?").run(tx.id);
+  await logActivity(req.user.id, `A rejeté une recharge de ${tx.amount} FCFA`, tx.id);
+  res.json({ ok: true });
+}));
+
 router.get('/transactions', authRequired, requirePermission('can_view_revenue'), asyncHandler(async (req, res) => {
-  const { id, userId, reference, bookId, date, status } = req.query;
+  const { id, userId, bookId, date, status } = req.query;
   let sql = `SELECT p.*, u.name as user_name, b.title as book_title FROM purchases p
     JOIN users u ON u.id = p.user_id JOIN books b ON b.id = p.book_id WHERE 1=1`;
   const params = [];
   if (id) { sql += ' AND p.id = ?'; params.push(id); }
   if (userId) { sql += ' AND p.user_id = ?'; params.push(userId); }
-  if (reference) { sql += ' AND p.payment_reference LIKE ?'; params.push(`%${reference}%`); }
   if (bookId) { sql += ' AND p.book_id = ?'; params.push(bookId); }
   if (date) { sql += ' AND date(p.created_at) = ?'; params.push(date); }
   if (status) { sql += ' AND p.status = ?'; params.push(status); }
@@ -80,32 +113,9 @@ router.get('/transactions', authRequired, requirePermission('can_view_revenue'),
   res.json(await db.prepare(sql).all(...params));
 }));
 
-router.post('/transactions/:id/refund', authRequired, requirePermission('can_manage_payments'), asyncHandler(async (req, res) => {
-  const { revokeAccess } = req.body;
-  const purchase = await db.prepare('SELECT * FROM purchases WHERE id = ?').get(req.params.id);
-  if (!purchase) return res.status(404).json({ error: 'Transaction introuvable.' });
-  if (purchase.status !== 'success') return res.status(400).json({ error: 'Seule une transaction réussie peut être remboursée.' });
-  await db.prepare("UPDATE purchases SET status = 'refunded' WHERE id = ?").run(purchase.id);
-  await logActivity(req.user.id, `A remboursé la transaction ${purchase.id}${revokeAccess ? ' (accès retiré)' : ''}`, purchase.id);
-  res.json({ ok: true });
-}));
-
-router.post('/transactions/:id/confirm-manual', authRequired, requirePermission('can_manage_payments'), asyncHandler(async (req, res) => {
-  const purchase = await db.prepare('SELECT * FROM purchases WHERE id = ?').get(req.params.id);
-  if (!purchase) return res.status(404).json({ error: 'Transaction introuvable.' });
-  if (purchase.status === 'success') return res.json({ ok: true, status: 'success' });
-  if (purchase.status !== 'pending') {
-    return res.status(400).json({ error: `Impossible de confirmer une transaction "${purchase.status}".` });
-  }
-  await db.prepare("UPDATE purchases SET status = 'success', confirmed_at = datetime('now') WHERE id = ?").run(purchase.id);
-  const book = await db.prepare('SELECT * FROM books WHERE id = ?').get(purchase.book_id);
-  await logActivity(req.user.id, `A confirmé manuellement le paiement de "${book?.title || purchase.book_id}"`, purchase.id);
-  res.json({ ok: true, status: 'success' });
-}));
-
 router.get('/users', authRequired, requireRole('admin_users'), asyncHandler(async (req, res) => {
   const { q } = req.query;
-  let sql = 'SELECT id,name,email,phone,role,status,created_at FROM users WHERE 1=1';
+  let sql = 'SELECT id,name,email,phone,role,status,balance,created_at FROM users WHERE 1=1';
   const params = [];
   if (q) { sql += ' AND (name LIKE ? OR email LIKE ? OR phone LIKE ?)'; params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
   sql += ' ORDER BY created_at DESC LIMIT 200';
@@ -113,7 +123,7 @@ router.get('/users', authRequired, requireRole('admin_users'), asyncHandler(asyn
 }));
 
 router.get('/users/:id', authRequired, requireRole('admin_users'), asyncHandler(async (req, res) => {
-  const user = await db.prepare('SELECT id,name,email,phone,role,status,created_at FROM users WHERE id = ?').get(req.params.id);
+  const user = await db.prepare('SELECT id,name,email,phone,role,status,balance,created_at FROM users WHERE id = ?').get(req.params.id);
   if (!user) return res.status(404).json({ error: 'Utilisateur introuvable.' });
   const purchases = await db.prepare(`
     SELECT p.*, b.title FROM purchases p JOIN books b ON b.id=p.book_id
