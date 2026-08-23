@@ -82,8 +82,7 @@ PROVIDERS.moov_money = makeFedapayProvider('moov', 'moov_money', 'Moov Money Bé
 PROVIDERS.mtn_money = makeFedapayProvider('mtn_open', 'mtn_money', 'MTN Mobile Money');
 
 const MANUAL_PHONE = process.env.MANUAL_PAYMENT_PHONE || '0194180824';
-const MANUAL_PHONE_INTL = `229${MANUAL_PHONE.replace(/\D/g, '').replace(/^0/, '')}`;
-
+const MANUAL_PHONE_INTL = `229${MANUAL_PHONE.replace(/\D/g, '')}`;
 const manualProvider = {
   name: 'manual_whatsapp',
   label: `Envoi direct (${MANUAL_PHONE})`,
