@@ -13,6 +13,10 @@ export default function Header() {
       <div className="topbar-actions">
         {user ? (
           <>
+            <Link to="/recharge" className="balance-pill" title="Recharger mon solde">
+              <span>{(user.balance || 0).toLocaleString('fr-FR')} F</span>
+              <span className="balance-plus">+</span>
+            </Link>
             <span className="role-badge" title={user.role}>{user.name.split(' ')[0]}</span>
             <button className="icon-btn" title="Déconnexion" onClick={logout}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
