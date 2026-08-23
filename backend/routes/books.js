@@ -11,11 +11,9 @@ const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
 
-// Les fichiers sont reçus en mémoire puis envoyés vers Cloudinary (ou le
-// disque local en secours) via saveFile() — voir utils/fileStorage.js.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 60 * 1024 * 1024 }, // 60MB
+  limits: { fileSize: 60 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.fieldname === 'cover' && !file.mimetype.startsWith('image/')) {
       return cb(new Error('La couverture doit être une image.'));
@@ -110,6 +108,28 @@ router.get('/:id/preview', asyncHandler(async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: "Impossible de générer l'aperçu." });
   }
+}));
+
+router.get('/:id/reviews', asyncHandler(async (req, res) => {
+  const rows = await db.prepare(`
+    SELECT r.id, r.rating, r.comment, r.created_at, u.name as user_name
+    FROM reviews r JOIN users u ON u.id = r.user_id
+    WHERE r.book_id = ? ORDER BY r.created_at DESC`).all(req.params.id);
+  res.json(rows);
+}));
+
+router.post('/:id/reviews', authRequired, asyncHandler(async (req, res) => {
+  const { comment, rating } = req.body;
+  if (!comment || !comment.trim()) return res.status(400).json({ error: 'Le commentaire ne peut pas être vide.' });
+  const book = await db.prepare('SELECT id FROM books WHERE id = ?').get(req.params.id);
+  if (!book) return res.status(404).json({ error: 'Cahier introuvable.' });
+  const ratingValue = rating ? Math.min(5, Math.max(1, Number(rating))) : null;
+
+  const id = uuid();
+  await db.prepare('INSERT INTO reviews (id, book_id, user_id, rating, comment) VALUES (?,?,?,?,?)')
+    .run(id, req.params.id, req.user.id, ratingValue, comment.trim().slice(0, 1000));
+  await logActivity(req.user.id, 'A laissé un avis', req.params.id);
+  res.status(201).json({ id, rating: ratingValue, comment: comment.trim(), userName: req.user.name, createdAt: new Date().toISOString() });
 }));
 
 router.post(
