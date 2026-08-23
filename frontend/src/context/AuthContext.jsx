@@ -3,8 +3,6 @@ import { api } from '../api/client.js';
 
 const AuthContext = createContext(null);
 
-// La session est sauvegardee dans localStorage pour survivre a une fermeture
-// de l'onglet/appli, un redemarrage du telephone, etc.
 const STORAGE_KEY = 'kajye_session';
 
 function loadStoredSession() {
@@ -75,7 +73,7 @@ export function AuthProvider({ children }) {
   useEffect(() => { if (token) refreshMe(); }, [token]); // eslint-disable-line
 
   return (
-    <AuthContext.Provider value={{ token, user, loading, login, register, loginWithGoogle, logout }}>
+    <AuthContext.Provider value={{ token, user, loading, login, register, loginWithGoogle, logout, refreshMe }}>
       {children}
     </AuthContext.Provider>
   );
