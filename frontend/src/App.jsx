@@ -11,6 +11,7 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import Library from './pages/Library.jsx';
 import Profile from './pages/Profile.jsx';
+import Recharge from './pages/Recharge.jsx';
 import AdminDashboard from './pages/AdminDashboard.jsx';
 import AdminBooks from './pages/AdminBooks.jsx';
 import AdminValidation from './pages/AdminValidation.jsx';
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/inscription" element={<Register />} />
         <Route path="/bibliotheque" element={<RequireAuth><Library /></RequireAuth>} />
         <Route path="/profil" element={<RequireAuth><Profile /></RequireAuth>} />
+        <Route path="/recharge" element={<RequireAuth><Recharge /></RequireAuth>} />
 
         <Route path="/admin" element={<RequireRole roles={['admin_content','admin_validation','admin_users']}><AdminDashboard /></RequireRole>} />
         <Route path="/admin/cahiers" element={<RequireRole roles={['admin_content']}><AdminBooks /></RequireRole>} />
