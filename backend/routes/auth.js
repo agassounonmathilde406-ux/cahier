@@ -10,7 +10,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const router = express.Router();
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, status: u.status };
+  return { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, status: u.status, balance: u.balance || 0 };
 }
 
 function sign(user) {
@@ -42,7 +42,7 @@ router.post('/register', asyncHandler(async (req, res) => {
 }));
 
 router.post('/login', asyncHandler(async (req, res) => {
-  const { identifier, password } = req.body; // identifier = email ou telephone
+  const { identifier, password } = req.body;
   if (!identifier || !password) return res.status(400).json({ error: 'Identifiant et mot de passe requis.' });
   const user = await db.prepare('SELECT * FROM users WHERE email = ? OR phone = ?').get(identifier, identifier);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
@@ -64,7 +64,6 @@ router.put('/me', authRequired, asyncHandler(async (req, res) => {
   res.json({ user: publicUser(user) });
 }));
 
-// ---------- CONNEXION AVEC GOOGLE ----------
 router.post('/google', asyncHandler(async (req, res) => {
   const { idToken } = req.body;
   if (!idToken) return res.status(400).json({ error: 'Jeton Google requis.' });
