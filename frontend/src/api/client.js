@@ -15,7 +15,9 @@ async function request(path, { method = 'GET', body, token, formData } = {}) {
   const isJson = res.headers.get('content-type')?.includes('application/json');
   const data = isJson ? await res.json() : null;
   if (!res.ok) {
-    throw new Error(data?.error || `Erreur ${res.status}`);
+    const err = new Error(data?.error || `Erreur ${res.status}`);
+    err.data = data;
+    throw err;
   }
   return data;
 }
@@ -41,23 +43,33 @@ export const api = {
   pendingBooks: (token) => request('/books/admin/pending', { token }),
   allBooksAdmin: (token) => request('/books/admin/all', { token }),
   reportBook: (id, reason, token) => request(`/books/${id}/report`, { method: 'POST', body: { reason }, token }),
+  reviews: (bookId) => request(`/books/${bookId}/reviews`),
+  addReview: (bookId, body, token) => request(`/books/${bookId}/reviews`, { method: 'POST', body, token }),
 
-  paymentMethods: () => request('/purchases/payment-methods'),
-  buy: (body, token) => request('/purchases', { method: 'POST', body, token }),
-  confirmPurchase: (id, token) => request(`/purchases/${id}/confirm`, { method: 'POST', token }),
+  buy: (bookId, token) => request('/purchases', { method: 'POST', body: { bookId }, token }),
   library: (token) => request('/purchases/library', { token }),
   history: (token) => request('/purchases/history', { token }),
   downloadLink: (bookId, token) => request(`/purchases/${bookId}/download-link`, { token }),
 
+  balance: (token) => request('/wallet/balance', { token }),
+  walletPaymentMethods: () => request('/wallet/payment-methods'),
+  recharge: (body, token) => request('/wallet/recharge', { method: 'POST', body, token }),
+  confirmRecharge: (id, token) => request(`/wallet/recharge/${id}/confirm`, { method: 'POST', token }),
+  walletHistory: (token) => request('/wallet/history', { token }),
+
   dashboard: (token) => request('/admin/dashboard', { token }),
   settings: (token) => request('/admin/settings', { token }),
   setPaymentMode: (mode, token) => request('/admin/settings/payment-mode', { method: 'POST', body: { mode }, token }),
+  walletTransactions: (params, token) => {
+    const qs = new URLSearchParams(Object.entries(params || {}).filter(([, v]) => v)).toString();
+    return request(`/admin/wallet-transactions${qs ? `?${qs}` : ''}`, { token });
+  },
+  confirmManualRecharge: (id, token) => request(`/admin/wallet-transactions/${id}/confirm-manual`, { method: 'POST', token }),
+  rejectRecharge: (id, token) => request(`/admin/wallet-transactions/${id}/reject`, { method: 'POST', token }),
   transactions: (params, token) => {
     const qs = new URLSearchParams(Object.entries(params || {}).filter(([, v]) => v)).toString();
     return request(`/admin/transactions${qs ? `?${qs}` : ''}`, { token });
   },
-  refund: (id, body, token) => request(`/admin/transactions/${id}/refund`, { method: 'POST', body, token }),
-  confirmManual: (id, token) => request(`/admin/transactions/${id}/confirm-manual`, { method: 'POST', token }),
   users: (q, token) => request(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`, { token }),
   userDetail: (id, token) => request(`/admin/users/${id}`, { token }),
   suspendUser: (id, token) => request(`/admin/users/${id}/suspend`, { method: 'POST', token }),
