@@ -1,15 +1,6 @@
 // utils/payments.js
-// Systeme de paiement MODULAIRE. Chaque moyen de paiement implemente la meme
-// interface { initiate(purchase), checkStatus(reference) }.
-//
-// Deux modes possibles, controles par un reglage en base (table "settings",
-// cle "payment_mode") que le proprietaire peut basculer depuis l'admin :
-//   - "fedapay"  : paiement automatique via FedaPay (MTN/Moov Bénin)
-//   - "manual"   : le client envoie l'argent lui-meme au numero du
-//                  proprietaire (Mobile Money + WhatsApp pour le reçu), et le
-//                  proprietaire confirme manuellement l'achat depuis l'admin
-//                  une fois le reçu recu.
-
+// Systeme de paiement MODULAIRE, utilisé désormais pour RECHARGER le solde
+// (wallet), pas pour payer un cahier directement.
 const db = require('../db');
 const PROVIDERS = {};
 
@@ -41,13 +32,14 @@ function makeFedapayProvider(mode, name, label) {
   return {
     name,
     label,
+    kind: 'fedapay',
     async initiate({ amount, phone, reference }) {
       if (!phone) throw new Error('Numéro de téléphone requis pour ce moyen de paiement.');
 
       const created = await fedapayRequest('/transactions', {
         method: 'POST',
         body: JSON.stringify({
-          description: `Cahier Kajye — commande ${reference}`,
+          description: `Recharge Kajye — ${reference}`,
           amount,
           currency: { iso: 'XOF' },
           customer: {
@@ -72,7 +64,7 @@ function makeFedapayProvider(mode, name, label) {
       return {
         status: 'pending',
         providerReference: String(transaction.id),
-        message: `Demande de paiement envoyée au ${phone}. Confirmez sur votre téléphone.`,
+        message: `Demande de paiement envoyée au ${phone}. Confirme sur ton téléphone.`,
       };
     },
 
@@ -89,22 +81,28 @@ function makeFedapayProvider(mode, name, label) {
 PROVIDERS.moov_money = makeFedapayProvider('moov', 'moov_money', 'Moov Money Bénin');
 PROVIDERS.mtn_money = makeFedapayProvider('mtn_open', 'mtn_money', 'MTN Mobile Money');
 
-// ---------- Paiement manuel (envoi direct au numéro + reçu WhatsApp) ----------
 const MANUAL_PHONE = process.env.MANUAL_PAYMENT_PHONE || '0194180824';
+const MANUAL_PHONE_INTL = `229${MANUAL_PHONE.replace(/\D/g, '').replace(/^0/, '')}`;
 
 const manualProvider = {
   name: 'manual_whatsapp',
   label: `Envoi direct (${MANUAL_PHONE})`,
+  kind: 'manual',
+  phone: MANUAL_PHONE,
+  whatsappPhone: MANUAL_PHONE_INTL,
   async initiate({ amount, reference }) {
+    const code = reference.slice(0, 8).toUpperCase();
     return {
       status: 'pending',
       providerReference: reference,
-      message: `Envoie ${amount.toLocaleString('fr-FR')} FCFA (Mobile Money) au ${MANUAL_PHONE}, puis envoie une capture du reçu sur WhatsApp au même numéro en précisant ce code : ${reference.slice(0, 8).toUpperCase()}. Ton cahier sera débloqué dès validation.`,
+      message: `Envoie ${amount.toLocaleString('fr-FR')} FCFA (Mobile Money) au ${MANUAL_PHONE}, puis clique sur le numéro pour envoyer le reçu par WhatsApp avec ce code : ${code}.`,
+      whatsappPhone: MANUAL_PHONE_INTL,
+      whatsappText: `Bonjour, voici mon reçu de recharge Kajye de ${amount.toLocaleString('fr-FR')} FCFA. Code : ${code}`,
     };
   },
   async checkStatus(reference) {
-    const purchase = await db.prepare('SELECT status FROM purchases WHERE id = ?').get(reference);
-    return { status: purchase ? purchase.status : 'pending' };
+    const tx = await db.prepare('SELECT status FROM wallet_transactions WHERE id = ?').get(reference);
+    return { status: tx ? tx.status : 'pending' };
   },
 };
 PROVIDERS.manual_whatsapp = manualProvider;
@@ -123,7 +121,7 @@ async function getProvider(name) {
 }
 
 function listProviders() {
-  return Object.values(PROVIDERS).map((p) => ({ id: p.name, label: p.label }));
+  return Object.values(PROVIDERS).map((p) => ({ id: p.name, label: p.label, kind: p.kind }));
 }
 
 module.exports = { getProvider, listProviders, getActivePaymentMode };
