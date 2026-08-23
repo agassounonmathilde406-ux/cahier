@@ -1,19 +1,9 @@
-// db.js — Connexion Turso (libSQL, "SQLite hébergé dans le cloud", tier gratuit
-// permanent) + schema complet de la plateforme.
-//
-// En développement local (sans compte Turso), laissez TURSO_DATABASE_URL vide :
-// le client écrit alors dans un fichier local (./data/plateforme.db), pratique
-// pour tester sans dépendre du réseau.
-//
-// En production, créez une base sur https://turso.tech (gratuit, sans carte
-// bancaire), puis renseignez TURSO_DATABASE_URL et TURSO_AUTH_TOKEN dans .env —
-// vos données survivent alors à tous les redéploiements, même sur un hébergeur
-// dont le disque est éphémère (ex: Render en plan gratuit).
+// db.js — Connexion Turso (libSQL) + schema complet de la plateforme.
 const { createClient } = require('@libsql/client');
 const path = require('path');
 
 const url = process.env.TURSO_DATABASE_URL || `file:${path.join(__dirname, 'data', 'plateforme.db')}`;
-const authToken = process.env.TURSO_AUTH_TOKEN; // non requis en mode fichier local
+const authToken = process.env.TURSO_AUTH_TOKEN;
 
 const client = createClient(authToken ? { url, authToken } : { url });
 
@@ -39,7 +29,6 @@ function prepare(sql) {
 }
 
 const SCHEMA = `
--- ===================== UTILISATEURS =====================
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -87,15 +76,30 @@ CREATE TABLE IF NOT EXISTS books (
   published_at TEXT
 );
 
+-- Achats de cahiers : desormais toujours INSTANTANES (payes via le solde du
+-- portefeuille), donc toujours status='success' des la creation.
 CREATE TABLE IF NOT EXISTS purchases (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   book_id TEXT NOT NULL REFERENCES books(id),
   amount INTEGER NOT NULL,
-  payment_method TEXT NOT NULL,
+  payment_method TEXT NOT NULL DEFAULT 'wallet',
   payment_reference TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   download_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  confirmed_at TEXT
+);
+
+-- Recharges de solde (depots). C'est ICI que le paiement FedaPay/manuel
+-- intervient desormais, pas au moment d'acheter un cahier.
+CREATE TABLE IF NOT EXISTS wallet_transactions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  amount INTEGER NOT NULL,
+  payment_method TEXT NOT NULL,
+  payment_reference TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   confirmed_at TEXT
 );
@@ -117,7 +121,6 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Codes de verification par SMS (inscription/connexion par numero de telephone)
 CREATE TABLE IF NOT EXISTS otp_codes (
   id TEXT PRIMARY KEY,
   phone TEXT NOT NULL,
@@ -127,10 +130,19 @@ CREATE TABLE IF NOT EXISTS otp_codes (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Reglages generaux du site (cle/valeur), ex: quel moyen de paiement est actif
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+
+-- Avis/commentaires laisses par les utilisateurs sur un cahier
+CREATE TABLE IF NOT EXISTS reviews (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL REFERENCES books(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  rating INTEGER,
+  comment TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_books_level ON books(level);
@@ -138,6 +150,8 @@ CREATE INDEX IF NOT EXISTS idx_books_subject ON books(subject_id);
 CREATE INDEX IF NOT EXISTS idx_purchases_user ON purchases(user_id);
 CREATE INDEX IF NOT EXISTS idx_purchases_book ON purchases(book_id);
 CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_codes(phone);
+CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_book ON reviews(book_id);
 `;
 
 async function ensureColumn(table, column, definition) {
@@ -148,12 +162,11 @@ async function ensureColumn(table, column, definition) {
   }
 }
 
-// Doit être appelé une fois au démarrage du serveur avant de traiter des
-// requêtes (voir server.js).
 async function initSchema() {
   await client.executeMultiple(SCHEMA);
   await ensureColumn('users', 'google_id', 'TEXT');
   await ensureColumn('users', 'phone_verified', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn('users', 'balance', 'INTEGER NOT NULL DEFAULT 0');
   await client.execute({
     sql: "INSERT INTO settings (key, value) VALUES ('payment_mode', 'fedapay') ON CONFLICT(key) DO NOTHING",
     args: [],
