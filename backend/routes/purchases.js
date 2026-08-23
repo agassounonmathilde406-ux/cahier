@@ -5,7 +5,6 @@ const jwt = require('jsonwebtoken');
 const db = require('../db');
 const { authRequired } = require('../middleware/auth');
 const { logActivity } = require('../utils/activityLog');
-const { getProvider, listProviders } = require('../utils/payments');
 const { watermarkPdf } = require('../utils/watermark');
 const { readFileBytes } = require('../utils/fileStorage');
 const { JWT_SECRET } = require('../middleware/auth');
@@ -19,58 +18,33 @@ function contentDisposition(type, title) {
   return `${type}; filename="${ascii}.pdf"; filename*=UTF-8''${encoded}`;
 }
 
-router.get('/payment-methods', (req, res) => res.json(listProviders()));
-
 router.post('/', authRequired, asyncHandler(async (req, res) => {
-  const { bookId, paymentMethod, phone } = req.body;
+  const { bookId } = req.body;
   const book = await db.prepare("SELECT * FROM books WHERE id = ? AND status = 'published'").get(bookId);
   if (!book) return res.status(404).json({ error: 'Cahier introuvable.' });
   if (book.is_free) return res.status(400).json({ error: 'Ce cahier est gratuit, aucun achat requis.' });
 
   const already = await db.prepare(
-    "SELECT * FROM purchases WHERE user_id = ? AND book_id = ? AND status IN ('success','pending')"
+    "SELECT * FROM purchases WHERE user_id = ? AND book_id = ? AND status = 'success'"
   ).get(req.user.id, bookId);
-  if (already && already.status === 'success') {
-    return res.status(409).json({ error: 'Vous possédez déjà ce cahier.', purchaseId: already.id });
+  if (already) return res.status(409).json({ error: 'Vous possédez déjà ce cahier.', purchaseId: already.id });
+
+  if ((req.user.balance || 0) < book.price) {
+    return res.status(402).json({
+      error: `Solde insuffisant. Il te manque ${(book.price - (req.user.balance || 0)).toLocaleString('fr-FR')} FCFA — recharge ton compte d'abord.`,
+      missing: book.price - (req.user.balance || 0),
+    });
   }
 
-  const purchaseId = already ? already.id : uuid();
-  const provider = await getProvider(paymentMethod);
+  const id = uuid();
+  await db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(book.price, req.user.id);
+  await db.prepare(`INSERT INTO purchases (id,user_id,book_id,amount,payment_method,status,confirmed_at)
+    VALUES (?,?,?,?,?,?,datetime('now'))`)
+    .run(id, req.user.id, bookId, book.price, 'wallet', 'success');
 
-  try {
-    const result = await provider.initiate({ amount: book.price, phone, reference: purchaseId });
-    if (!already) {
-      await db.prepare(`INSERT INTO purchases (id,user_id,book_id,amount,payment_method,payment_reference,status)
-        VALUES (?,?,?,?,?,?,?)`)
-        .run(purchaseId, req.user.id, bookId, book.price, provider.name, result.providerReference, 'pending');
-    } else {
-      await db.prepare('UPDATE purchases SET payment_method = ?, payment_reference = ?, status = ? WHERE id = ?')
-        .run(provider.name, result.providerReference, 'pending', purchaseId);
-    }
-    await logActivity(req.user.id, `A initié l'achat du cahier "${book.title}"`, purchaseId);
-    res.status(201).json({ purchaseId, status: 'pending', message: result.message });
-  } catch (e) {
-    res.status(502).json({ error: e.message || 'Le service de paiement est momentanément indisponible.' });
-  }
-}));
-
-router.post('/:id/confirm', authRequired, asyncHandler(async (req, res) => {
-  const purchase = await db.prepare('SELECT * FROM purchases WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-  if (!purchase) return res.status(404).json({ error: 'Transaction introuvable.' });
-  if (purchase.status === 'success') return res.json({ status: 'success' });
-  if (purchase.status !== 'pending') return res.status(409).json({ error: `Transaction ${purchase.status}.` });
-
-  const provider = await getProvider(purchase.payment_method);
-  const result = await provider.checkStatus(purchase.payment_reference);
-
-  if (result.status === 'success') {
-    await db.prepare("UPDATE purchases SET status = 'success', confirmed_at = datetime('now') WHERE id = ?").run(purchase.id);
-    const book = await db.prepare('SELECT * FROM books WHERE id = ?').get(purchase.book_id);
-    await logActivity(req.user.id, `Paiement confirmé pour "${book.title}"`, purchase.id);
-  } else if (result.status === 'failed') {
-    await db.prepare("UPDATE purchases SET status = 'failed' WHERE id = ?").run(purchase.id);
-  }
-  res.json({ status: result.status });
+  await logActivity(req.user.id, `A acheté le cahier "${book.title}" (${book.price} FCFA depuis son solde)`, id);
+  const user = await db.prepare('SELECT balance FROM users WHERE id = ?').get(req.user.id);
+  res.status(201).json({ purchaseId: id, status: 'success', balance: user.balance });
 }));
 
 router.get('/library', authRequired, asyncHandler(async (req, res) => {
