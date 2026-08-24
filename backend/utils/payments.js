@@ -1,6 +1,4 @@
 // utils/payments.js
-// Systeme de paiement MODULAIRE, utilisé désormais pour RECHARGER le solde
-// (wallet), pas pour payer un cahier directement.
 const db = require('../db');
 const PROVIDERS = {};
 
@@ -83,6 +81,7 @@ PROVIDERS.mtn_money = makeFedapayProvider('mtn_open', 'mtn_money', 'MTN Mobile M
 
 const MANUAL_PHONE = process.env.MANUAL_PAYMENT_PHONE || '0194180824';
 const MANUAL_PHONE_INTL = `229${MANUAL_PHONE.replace(/\D/g, '')}`;
+
 const manualProvider = {
   name: 'manual_whatsapp',
   label: `Envoi direct (${MANUAL_PHONE})`,
@@ -119,8 +118,12 @@ async function getProvider(name) {
   return p;
 }
 
-function listProviders() {
-  return Object.values(PROVIDERS).map((p) => ({ id: p.name, label: p.label, kind: p.kind }));
+async function listProviders() {
+  const mode = await getActivePaymentMode();
+  if (mode === 'manual') {
+    return [{ id: manualProvider.name, label: manualProvider.label, kind: manualProvider.kind }];
+  }
+  return [PROVIDERS.moov_money, PROVIDERS.mtn_money].map((p) => ({ id: p.name, label: p.label, kind: p.kind }));
 }
 
 module.exports = { getProvider, listProviders, getActivePaymentMode };
