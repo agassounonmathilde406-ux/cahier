@@ -9,6 +9,13 @@ const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
 
+function normalizeEmail(v) {
+  return v ? v.trim().toLowerCase() : v;
+}
+function normalizePhone(v) {
+  return v ? v.replace(/\s+/g, '').trim() : v;
+}
+
 function publicUser(u) {
   return { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, status: u.status, balance: u.balance || 0 };
 }
@@ -18,7 +25,11 @@ function sign(user) {
 }
 
 router.post('/register', asyncHandler(async (req, res) => {
-  const { name, email, phone, password } = req.body;
+  let { name, email, phone, password } = req.body;
+  name = name?.trim();
+  email = email ? normalizeEmail(email) : null;
+  phone = phone ? normalizePhone(phone) : null;
+
   if (!name || !password || (!email && !phone)) {
     return res.status(400).json({ error: 'Nom, mot de passe et (email ou téléphone) requis.' });
   }
@@ -27,14 +38,14 @@ router.post('/register', asyncHandler(async (req, res) => {
   }
   const existing = await db
     .prepare('SELECT id FROM users WHERE email = ? OR phone = ?')
-    .get(email || null, phone || null);
+    .get(email, phone);
   if (existing) return res.status(409).json({ error: 'Un compte existe déjà avec cet email ou ce téléphone.' });
 
   const id = uuid();
   const hash = bcrypt.hashSync(password, 10);
   await db.prepare(
     'INSERT INTO users (id,name,email,phone,password_hash,role) VALUES (?,?,?,?,?,?)'
-  ).run(id, name, email || null, phone || null, hash, 'user');
+  ).run(id, name, email, phone, hash, 'user');
 
   const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   await logActivity(id, 'Inscription', name);
@@ -42,9 +53,14 @@ router.post('/register', asyncHandler(async (req, res) => {
 }));
 
 router.post('/login', asyncHandler(async (req, res) => {
-  const { identifier, password } = req.body;
+  let { identifier, password } = req.body;
   if (!identifier || !password) return res.status(400).json({ error: 'Identifiant et mot de passe requis.' });
-  const user = await db.prepare('SELECT * FROM users WHERE email = ? OR phone = ?').get(identifier, identifier);
+
+  identifier = identifier.trim();
+  const asEmail = normalizeEmail(identifier);
+  const asPhone = normalizePhone(identifier);
+
+  const user = await db.prepare('SELECT * FROM users WHERE email = ? OR phone = ?').get(asEmail, asPhone);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'Identifiants incorrects.' });
   }
@@ -57,7 +73,9 @@ router.get('/me', authRequired, (req, res) => {
 });
 
 router.put('/me', authRequired, asyncHandler(async (req, res) => {
-  const { name, email, phone } = req.body;
+  let { name, email, phone } = req.body;
+  email = email ? normalizeEmail(email) : email;
+  phone = phone ? normalizePhone(phone) : phone;
   await db.prepare('UPDATE users SET name = COALESCE(?,name), email = COALESCE(?,email), phone = COALESCE(?,phone) WHERE id = ?')
     .run(name, email, phone, req.user.id);
   const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
@@ -83,16 +101,17 @@ router.post('/google', asyncHandler(async (req, res) => {
     return res.status(401).json({ error: "L'email Google associé n'est pas vérifié." });
   }
 
-  let user = await db.prepare('SELECT * FROM users WHERE google_id = ? OR email = ?').get(payload.sub, payload.email);
+  const email = normalizeEmail(payload.email);
+  let user = await db.prepare('SELECT * FROM users WHERE google_id = ? OR email = ?').get(payload.sub, email);
 
   if (!user) {
     const id = uuid();
     const unusableHash = bcrypt.hashSync(uuid(), 10);
     await db.prepare(
       'INSERT INTO users (id,name,email,password_hash,role,google_id) VALUES (?,?,?,?,?,?)'
-    ).run(id, payload.name || payload.email.split('@')[0], payload.email, unusableHash, 'user', payload.sub);
+    ).run(id, payload.name || email.split('@')[0], email, unusableHash, 'user', payload.sub);
     user = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-    await logActivity(id, 'Inscription via Google', payload.email);
+    await logActivity(id, 'Inscription via Google', email);
   } else if (!user.google_id) {
     await db.prepare('UPDATE users SET google_id = ? WHERE id = ?').run(payload.sub, user.id);
     user = await db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
