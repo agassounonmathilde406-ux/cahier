@@ -7,18 +7,30 @@ export default function Register() {
   const { register } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState('+229 ');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  function handlePhoneChange(e) {
+    let v = e.target.value;
+    if (!v.startsWith('+229')) v = '+229 ';
+    setPhone(v);
+  }
 
   async function submit(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await register({ name, phone: phone || undefined, email: email || undefined, password });
+      const cleanPhone = phone.replace(/\s+/g, '');
+      await register({
+        name,
+        phone: cleanPhone === '+229' ? undefined : cleanPhone,
+        email: email || undefined,
+        password,
+      });
       navigate('/');
     } catch (e) {
       setError(e.message);
@@ -42,7 +54,7 @@ export default function Register() {
         </div>
         <div className="field">
           <label>Téléphone</label>
-          <input placeholder="+229 00 00 00 00" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <input value={phone} onChange={handlePhoneChange} inputMode="tel" />
         </div>
         <div className="field">
           <label>Email (optionnel)</label>
