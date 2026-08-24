@@ -43,7 +43,7 @@ export default function BookOpenIntro({ children }) {
         </div>
       )}
       {mascotPhase && (
-        <div className={`book-intro-mascot book-intro-mascot-${mascotPhase}`}>
+        <div className={`login-mascot login-mascot-${mascotPhase}`}>
           <div className="mascot-body"><div className="mascot-eyes"><span /><span /></div></div>
           <div className="mascot-legs"><span /><span /></div>
           <div className="mascot-pencil" />
