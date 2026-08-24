@@ -705,19 +705,36 @@ table th { font-family: var(--font-mono); font-size: 11px; text-transform: upper
 
 .book-intro-mascot {
   position: absolute;
-  top: -14px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 60px; height: 74px;
+  top: 6px;
+  right: 8px;
+  width: 54px; height: 66px;
   z-index: 20;
-  animation: mascotPopIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both, mascotBounce 0.9s 0.5s ease-in-out infinite;
+  transform-origin: bottom center;
 }
+.book-intro-mascot-in {
+  animation: mascotPopIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.book-intro-mascot-write {
+  animation: mascotWriting 0.35s ease-in-out infinite;
+}
+.book-intro-mascot-out {
+  animation: mascotLeave 0.5s cubic-bezier(0.55, 0, 0.85, 0.4) both;
+}
+
 @keyframes mascotPopIn {
-  from { transform: translateX(-50%) scale(0); }
-  to { transform: translateX(-50%) scale(1); }
+  from { transform: scale(0) rotate(-10deg); opacity: 0; }
+  to { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+@keyframes mascotWriting {
+  0%, 100% { transform: rotate(-3deg) translateY(0); }
+  50% { transform: rotate(3deg) translateY(-2px); }
+}
+@keyframes mascotLeave {
+  from { transform: translateY(0) scale(1); opacity: 1; }
+  to { transform: translateY(18px) scale(0.4); opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .book-cover-panel, .book-intro-mascot { animation: none !important; }
+  .book-cover-panel, .book-intro-mascot-in, .book-intro-mascot-write, .book-intro-mascot-out { animation: none !important; }
   .book-intro-content { opacity: 1; transform: none; }
 }
