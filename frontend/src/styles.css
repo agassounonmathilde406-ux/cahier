@@ -738,3 +738,38 @@ table th { font-family: var(--font-mono); font-size: 11px; text-transform: upper
   .book-cover-panel, .book-intro-mascot-in, .book-intro-mascot-write, .book-intro-mascot-out { animation: none !important; }
   .book-intro-content { opacity: 1; transform: none; }
 }
+/* ---------- Mascotte de l'intro connexion (v2, noms uniques) ---------- */
+.login-mascot {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 54px; height: 66px;
+  z-index: 20;
+  transform-origin: bottom center;
+}
+.login-mascot-in {
+  animation: loginMascotPopIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both !important;
+}
+.login-mascot-write {
+  animation: loginMascotWriting 0.35s ease-in-out infinite !important;
+}
+.login-mascot-out {
+  animation: loginMascotLeave 0.5s cubic-bezier(0.55, 0, 0.85, 0.4) both !important;
+}
+
+@keyframes loginMascotPopIn {
+  from { transform: scale(0) rotate(-10deg); opacity: 0; }
+  to { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+@keyframes loginMascotWriting {
+  0%, 100% { transform: rotate(-3deg) translateY(0); }
+  50% { transform: rotate(3deg) translateY(-2px); }
+}
+@keyframes loginMascotLeave {
+  from { transform: translateY(0) scale(1); opacity: 1; }
+  to { transform: translateY(18px) scale(0.4); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-mascot-in, .login-mascot-write, .login-mascot-out { animation: none !important; }
+   }
