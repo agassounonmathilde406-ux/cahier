@@ -8,7 +8,7 @@ export default function BookOpenIntro({ children }) {
   const skip = reduceMotion || alreadySeen;
 
   const [opened, setOpened] = useState(skip);
-  const [showMascot, setShowMascot] = useState(skip);
+  const [mascotPhase, setMascotPhase] = useState(null);
   const coverRef = useRef(null);
 
   useEffect(() => {
@@ -18,10 +18,18 @@ export default function BookOpenIntro({ children }) {
     const onEnd = () => {
       setOpened(true);
       sessionStorage.setItem(SEEN_KEY, '1');
-      setTimeout(() => setShowMascot(true), 120);
+
+      const t1 = setTimeout(() => setMascotPhase('in'), 150);
+      const t2 = setTimeout(() => setMascotPhase('write'), 650);
+      const t3 = setTimeout(() => setMascotPhase('out'), 2200);
+      const t4 = setTimeout(() => setMascotPhase(null), 2700);
+      el._timers = [t1, t2, t3, t4];
     };
     el.addEventListener('animationend', onEnd);
-    return () => el.removeEventListener('animationend', onEnd);
+    return () => {
+      el.removeEventListener('animationend', onEnd);
+      (el._timers || []).forEach(clearTimeout);
+    };
   }, [skip]);
 
   return (
@@ -34,8 +42,8 @@ export default function BookOpenIntro({ children }) {
           </div>
         </div>
       )}
-      {showMascot && (
-        <div className="book-intro-mascot">
+      {mascotPhase && (
+        <div className={`book-intro-mascot book-intro-mascot-${mascotPhase}`}>
           <div className="mascot-body"><div className="mascot-eyes"><span /><span /></div></div>
           <div className="mascot-legs"><span /><span /></div>
           <div className="mascot-pencil" />
