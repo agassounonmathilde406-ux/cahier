@@ -9,7 +9,9 @@ const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
 
-router.get('/payment-methods', (req, res) => res.json(listProviders()));
+router.get('/payment-methods', asyncHandler(async (req, res) => {
+  res.json(await listProviders());
+}));
 
 router.get('/balance', authRequired, (req, res) => {
   res.json({ balance: req.user.balance || 0 });
