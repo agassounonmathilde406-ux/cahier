@@ -90,15 +90,17 @@ router.post('/wallet-transactions/:id/confirm-manual', authRequired, requirePerm
   res.json({ ok: true, status: 'success' });
 }));
 
-router.post('/wallet-transactions/:id/reject', authRequired, requirePermission('can_manage_payments'), asyncHandler(async (req, res) => {
-  const tx = await db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(req.params.id);
-  if (!tx) return res.status(404).json({ error: 'Recharge introuvable.' });
-  if (tx.status !== 'pending') return res.status(400).json({ error: 'Seule une recharge en attente peut être rejetée.' });
-  await db.prepare("UPDATE wallet_transactions SET status = 'failed' WHERE id = ?").run(tx.id);
-  await logActivity(req.user.id, `A rejeté une recharge de ${tx.amount} FCFA`, tx.id);
-  res.json({ ok: true });
+router.get('/wallet-transactions', authRequired, requirePermission('can_view_revenue'), asyncHandler(async (req, res) => {
+  const { id, userId, status } = req.query;
+  let sql = `SELECT w.*, u.name as user_name FROM wallet_transactions w
+    JOIN users u ON u.id = w.user_id WHERE 1=1`;
+  const params = [];
+  if (id) { sql += ' AND w.id LIKE ?'; params.push(`${id}%`); }
+  if (userId) { sql += ' AND w.user_id = ?'; params.push(userId); }
+  if (status) { sql += ' AND w.status = ?'; params.push(status); }
+  sql += ' ORDER BY w.created_at DESC LIMIT 200';
+  res.json(await db.prepare(sql).all(...params));
 }));
-
 router.get('/transactions', authRequired, requirePermission('can_view_revenue'), asyncHandler(async (req, res) => {
   const { id, userId, bookId, date, status } = req.query;
   let sql = `SELECT p.*, u.name as user_name, b.title as book_title FROM purchases p
