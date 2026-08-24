@@ -24,33 +24,13 @@ function sign(user) {
   return jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
 }
 
-router.post('/register', asyncHandler(async (req, res) => {
-  let { name, email, phone, password } = req.body;
-  name = name?.trim();
-  email = email ? normalizeEmail(email) : null;
-  phone = phone ? normalizePhone(phone) : null;
-
-  if (!name || !password || (!email && !phone)) {
-    return res.status(400).json({ error: 'Nom, mot de passe et (email ou téléphone) requis.' });
-  }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères.' });
-  }
-  const existing = await db
-    .prepare('SELECT id FROM users WHERE email = ? OR phone = ?')
-    .get(email, phone);
-  if (existing) return res.status(409).json({ error: 'Un compte existe déjà avec cet email ou ce téléphone.' });
-
-  const id = uuid();
-  const hash = bcrypt.hashSync(password, 10);
-  await db.prepare(
-    'INSERT INTO users (id,name,email,phone,password_hash,role) VALUES (?,?,?,?,?,?)'
-  ).run(id, name, email, phone, hash, 'user');
-
-  const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-  await logActivity(id, 'Inscription', name);
-  res.status(201).json({ token: sign(user), user: publicUser(user) });
-}));
+// L'inscription publique par email/mot de passe est desactivee : seule la
+// connexion avec Google est proposee au grand public. Cette route reste en
+// place uniquement pour la creation d'administrateurs par le proprietaire,
+// via POST /api/admin/admins — jamais depuis le frontend public.
+router.post('/register', (req, res) => {
+  res.status(403).json({ error: "L'inscription par email/mot de passe n'est plus disponible. Connecte-toi avec Google." });
+});
 
 router.post('/login', asyncHandler(async (req, res) => {
   let { identifier, password } = req.body;
