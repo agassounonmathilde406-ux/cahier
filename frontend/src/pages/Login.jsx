@@ -16,7 +16,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(identifier, password);
+      await login(identifier.trim(), password);
       navigate('/');
     } catch (e) {
       setError(e.message);
