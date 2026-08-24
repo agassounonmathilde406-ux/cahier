@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import GoogleButton from '../components/GoogleButton.jsx';
+import BookOpenIntro from '../components/BookOpenIntro.jsx';
 
 export default function Login() {
   const { login } = useAuth();
@@ -26,7 +27,7 @@ export default function Login() {
   }
 
   return (
-    <div>
+    <BookOpenIntro>
       <h1>Connexion</h1>
       {error && <p className="error-box">{error}</p>}
 
@@ -47,6 +48,6 @@ export default function Login() {
       <p style={{ marginTop: 14, fontSize: 14 }}>
         Pas encore de compte ? <Link to="/inscription" className="btn-link">Créer un compte</Link>
       </p>
-    </div>
+    </BookOpenIntro>
   );
 }
