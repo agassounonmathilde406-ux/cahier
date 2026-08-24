@@ -638,3 +638,86 @@ table th { font-family: var(--font-mono); font-size: 11px; text-transform: upper
     animation: none !important;
   }
                                }
+/* ---------- Intro "cahier qui s'ouvre" (page de connexion) ---------- */
+.book-intro-wrap {
+  position: relative;
+}
+.book-intro-perspective {
+  position: absolute;
+  inset: 0;
+  perspective: 1400px;
+  z-index: 10;
+  pointer-events: none;
+}
+.book-cover-panel {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  background: linear-gradient(135deg, var(--green) 0%, var(--green-dark) 100%);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 6px 10px 24px rgba(35,42,59,0.35);
+  animation: bookOpen 1.15s 0.15s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+.book-cover-panel::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 10px;
+  background: var(--margin-red);
+  border-radius: 14px 0 0 14px;
+}
+.book-cover-title {
+  font-family: var(--font-display);
+  font-size: 40px;
+  color: var(--white);
+  font-weight: 700;
+}
+.book-cover-title .dot { color: var(--gold); }
+.book-cover-tagline {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.75);
+}
+
+@keyframes bookOpen {
+  0% { transform: rotateY(0deg) translateZ(0); opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: rotateY(-110deg) translateZ(0); opacity: 0.4; }
+}
+
+.book-intro-content {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.book-intro-content-visible {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.book-intro-mascot {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px; height: 74px;
+  z-index: 20;
+  animation: mascotPopIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both, mascotBounce 0.9s 0.5s ease-in-out infinite;
+}
+@keyframes mascotPopIn {
+  from { transform: translateX(-50%) scale(0); }
+  to { transform: translateX(-50%) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .book-cover-panel, .book-intro-mascot { animation: none !important; }
+  .book-intro-content { opacity: 1; transform: none; }
+}
