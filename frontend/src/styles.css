@@ -741,9 +741,10 @@ table th { font-family: var(--font-mono); font-size: 11px; text-transform: upper
 /* ---------- Mascotte de l'intro connexion (v2, noms uniques) ---------- */
 .login-mascot {
   position: absolute;
-  top: 6px;
-  right: 8px;
-  width: 54px; height: 66px;
+  top: 40px;
+  right: -6px;
+  width: 74px;
+  height: 90px;
   z-index: 20;
   transform-origin: bottom center;
 }
