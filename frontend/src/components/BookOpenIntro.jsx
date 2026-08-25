@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 const SEEN_KEY = 'kajye_login_intro_seen';
 
@@ -9,34 +9,26 @@ export default function BookOpenIntro({ children }) {
 
   const [opened, setOpened] = useState(skip);
   const [mascotPhase, setMascotPhase] = useState(null);
-  const coverRef = useRef(null);
 
   useEffect(() => {
     if (skip) return;
-    const el = coverRef.current;
-    if (!el) return;
-    const onEnd = () => {
-      setOpened(true);
-      sessionStorage.setItem(SEEN_KEY, '1');
+    sessionStorage.setItem(SEEN_KEY, '1');
 
-      const t1 = setTimeout(() => setMascotPhase('in'), 150);
-      const t2 = setTimeout(() => setMascotPhase('write'), 650);
-      const t3 = setTimeout(() => setMascotPhase('out'), 2200);
-      const t4 = setTimeout(() => setMascotPhase(null), 2700);
-      el._timers = [t1, t2, t3, t4];
-    };
-    el.addEventListener('animationend', onEnd);
-    return () => {
-      el.removeEventListener('animationend', onEnd);
-      (el._timers || []).forEach(clearTimeout);
-    };
+    const timers = [
+      setTimeout(() => setOpened(true), 1300),
+      setTimeout(() => setMascotPhase('in'), 1450),
+      setTimeout(() => setMascotPhase('write'), 1950),
+      setTimeout(() => setMascotPhase('out'), 3500),
+      setTimeout(() => setMascotPhase(null), 4000),
+    ];
+    return () => timers.forEach(clearTimeout);
   }, [skip]);
 
   return (
     <div className="book-intro-wrap">
       {!opened && (
         <div className="book-intro-perspective">
-          <div className="book-cover-panel" ref={coverRef}>
+          <div className="book-cover-panel">
             <span className="book-cover-title">Kajye<span className="dot">.</span></span>
             <span className="book-cover-tagline">Cahiers de cours — Bénin</span>
           </div>
